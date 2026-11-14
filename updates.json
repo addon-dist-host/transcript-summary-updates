@@ -3,14 +3,19 @@
     "{9f3b6d2a-7c41-4e8f-b2a5-1d0e6c8f4a37}": {
       "updates": [
         {
-          "version": "3.8",
-          "update_link": "https://raw.githubusercontent.com/addon-dist-host/transcript-summary-updates/refs/heads/main/transcript-summary-3.8.xpi",
-          "update_hash": "sha256:951608b273b43a1661ca6204c9a3808dd5c6959307e7e0b2e0628d72bc745885"
+          "version": "4.0",
+          "update_link": "https://raw.githubusercontent.com/addon-dist-host/transcript-summary-updates/refs/heads/main/transcript-summary-4.0.xpi",
+          "update_hash": "sha256:de923b30e46e45fea05a2efbc0a5ee0fa3af81f62beaca90c08c35d2c15cd468"
         },
         {
           "version": "3.9",
           "update_link": "https://raw.githubusercontent.com/addon-dist-host/transcript-summary-updates/refs/heads/main/transcript-summary-3.9.xpi",
           "update_hash": "sha256:4513fe42e01546eda7db8f83e8c7fa2d5eebea3778b4b222a51e17f1a3e4ea1c"
+        },
+        {
+          "version": "3.8",
+          "update_link": "https://raw.githubusercontent.com/addon-dist-host/transcript-summary-updates/refs/heads/main/transcript-summary-3.8.xpi",
+          "update_hash": "sha256:951608b273b43a1661ca6204c9a3808dd5c6959307e7e0b2e0628d72bc745885"
         }
       ]
     }
