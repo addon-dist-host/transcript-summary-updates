@@ -6,6 +6,11 @@
           "version": "3.8",
           "update_link": "https://raw.githubusercontent.com/addon-dist-host/transcript-summary-updates/refs/heads/main/transcript-summary-3.8.xpi",
           "update_hash": "sha256:951608b273b43a1661ca6204c9a3808dd5c6959307e7e0b2e0628d72bc745885"
+        },
+        {
+          "version": "3.9",
+          "update_link": "https://raw.githubusercontent.com/addon-dist-host/transcript-summary-updates/refs/heads/main/transcript-summary-3.9.xpi",
+          "update_hash": "sha256:4513fe42e01546eda7db8f83e8c7fa2d5eebea3778b4b222a51e17f1a3e4ea1c"
         }
       ]
     }
