@@ -1,0 +1,13 @@
+{
+  "addons": {
+    "extjump@desmond.local": {
+      "updates": [
+        {
+          "version": "1.2",
+          "update_link": "https://raw.githubusercontent.com/addon-dist-host/transcript-summary-updates/refs/heads/main/ext-jump/ext-jump-1.2.xpi",
+          "update_hash": "sha256:602e21b1a88c2aebd58d04f687ec0c6614f65e54a0216744dbfeaac4ed98cd0c"
+        }
+      ]
+    }
+  }
+}
