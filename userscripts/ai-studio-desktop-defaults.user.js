@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Studio Desktop Defaults
 // @namespace    com.des.aistudio-defaults
-// @version      0.6
+// @version      0.7
 // @description  Desktop AI Studio: every new chat and every visit starts on your chosen model (default Hydrogen) at the highest thinking level. Change the defaults with the gear button at the bottom left.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
@@ -11,7 +11,7 @@
 
 (function () {
   'use strict';
-  const VERSION = '0.6';
+  const VERSION = '0.7';
   if (window.top !== window.self) return;
   const STORE = 'aistudio-desktop-defaults';
   // Short event log shown in the settings card, so a screenshot tells what the script did and why.
@@ -23,7 +23,7 @@
     const box = document.getElementById('aisd-log');
     if (box) box.textContent = LOG.join('\n');
   };
-  const DEFAULTS = { enabled: true, model: 'hydrogen', thinking: 'highest' };
+  const DEFAULTS = { enabled: true, model: 'hydrogen', thinking: 'highest', sysOn: false, sys: '', sysLast: '' };
   const loadSettings = () => {
     try { return Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem(STORE) || '{}')); } catch (error) { return Object.assign({}, DEFAULTS); }
   };
@@ -230,6 +230,41 @@
   // AI Studio can prefix the path with the Google account number, e.g. /u/0/prompts/new_chat.
   const onNewChat = () => /^(\/u\/\d+)?\/prompts\/new_chat/.test(location.pathname);
 
+
+  // Default system instructions. Opens the System instructions panel, fills it, closes it. Never touches the prompt box.
+  // Rule: fill when the field is empty, or when it still holds the text this script put there earlier (so editing the default replaces it).
+  // Text you wrote yourself in that field is kept.
+  let sysDone = false;
+  const sysCard = () => document.querySelector('[data-test-system-instructions-card]');
+  const sysBox = () => all('textarea').find((e) => /system instructions/i.test(label(e)) && visible(e));
+  const applySystem = async (settings) => {
+    const want = (settings.sys || '').trim();
+    if (!settings.sysOn || !want) return { ok: true, note: 'system instructions off' };
+    const card = sysCard();
+    if (!card) return { ok: false, note: 'no System instructions card' };
+    card.click();
+    let box = null;
+    for (let i = 0; i < 20 && !box; i += 1) { await sleep(250); box = sysBox(); }
+    if (!box) return { ok: false, note: 'System instructions panel did not open' };
+    const have = (box.value || '').trim();
+    let note;
+    if (have === want) note = 'system instructions already set';
+    else if (!have || (settings.sysLast && have === settings.sysLast.trim())) {
+      setText(box, want);
+      await sleep(400);
+      box.dispatchEvent(new Event('blur', { bubbles: true }));
+      const ok = (box.value || '').trim() === want;
+      note = ok ? 'system instructions set' : 'system instructions not accepted';
+      if (!ok) return { ok: false, note };
+      settings.sysLast = want;
+      const cur = loadSettings(); cur.sysLast = want; saveSettings(cur);
+    } else note = 'system instructions kept (field already has other text)';
+    const close = all('button').find((b) => /close panel/i.test(label(b)) && visible(b));
+    if (close) close.click(); else escape();
+    await sleep(500);
+    return { ok: true, note };
+  };
+
   // Apply the saved defaults. Only touches the model and thinking controls, never the prompt text.
   const applyDefaults = async (settings) => {
     const notes = [];
@@ -247,6 +282,11 @@
       }
       return { ok: true };
     });
+    if (result.ok && !sysDone) {
+      const sr = await applySystem(settings);
+      notes.push(sr.note);
+      if (sr.ok) sysDone = true; else return { ok: false, note: sr.note };
+    }
     return { ok: result.ok, note: result.note || notes.join(' / ') };
   };
 
@@ -294,6 +334,13 @@
     });
     thinkRow.appendChild(sel);
     card.appendChild(thinkRow);
+    const sysRow = make('label', 'display:block;margin-bottom:10px');
+    const sysOn = make('input', '', '', 'aisd-sys-on');
+    sysOn.type = 'checkbox';
+    sysRow.appendChild(sysOn);
+    sysRow.appendChild(document.createTextNode(' Default system instructions (new chats; leaves text you typed yourself alone)'));
+    sysRow.appendChild(make('textarea', 'width:100%;box-sizing:border-box;height:110px;padding:4px 6px;margin-top:4px;color:#fff;background:#3a3a3a;border:1px solid #777;border-radius:6px;font:12px sans-serif;resize:vertical', '', 'aisd-sys'));
+    card.appendChild(sysRow);
     const save = make('button', 'padding:6px 10px;margin-right:6px;color:#fff;background:#444;border:1px solid #777;border-radius:6px;cursor:pointer;font:14px sans-serif', 'Save', 'aisd-save');
     save.type = 'button';
     const now = make('button', 'padding:6px 10px;color:#fff;background:#444;border:1px solid #777;border-radius:6px;cursor:pointer;font:14px sans-serif', 'Save and apply now', 'aisd-now');
@@ -311,12 +358,15 @@
       $('#aisd-on').checked = !!s.enabled;
       $('#aisd-model').value = s.model || '';
       $('#aisd-think').value = s.thinking || 'highest';
+      $('#aisd-sys-on').checked = !!s.sysOn;
+      $('#aisd-sys').value = s.sys || '';
     };
-    const read = () => ({ enabled: $('#aisd-on').checked, model: $('#aisd-model').value.trim(), thinking: $('#aisd-think').value });
+    const read = () => ({ enabled: $('#aisd-on').checked, model: $('#aisd-model').value.trim(), thinking: $('#aisd-think').value, sysOn: $('#aisd-sys-on').checked, sys: $('#aisd-sys').value, sysLast: loadSettings().sysLast || '' });
     gear.onclick = () => { fill(); $('#aisd-log').textContent = LOG.join('\n'); $('#aisd-msg').textContent = ''; card.style.display = card.style.display === 'none' ? 'block' : 'none'; };
     $('#aisd-save').onclick = () => { saveSettings(read()); $('#aisd-msg').textContent = 'Saved. Used from the next new chat.'; };
     $('#aisd-now').onclick = async () => {
       saveSettings(read());
+      sysDone = false;
       $('#aisd-msg').textContent = 'Applying...';
       const r = await applyDefaults(loadSettings());
       if (r.ok) { doneFor = 'applied'; appliedModel = modelKey(); lastThinking = thinkingNow(); userTouched = false; modelTouched = false; settleUntil = Date.now() + 20000; nextVerify = Date.now() + 3000; verifyCount = 0; logEvent('apply now: ' + r.note); }
@@ -340,7 +390,7 @@
   let nextVerify = 0;
   let verifyCount = 0;
   const resetState = (why) => {
-    doneFor = ''; appliedModel = ''; lastThinking = ''; userTouched = false; modelTouched = false; lastControl = ''; tries = 0; settleUntil = 0; verifyCount = 0; freshAt = 0;
+    sysDone = false; doneFor = ''; appliedModel = ''; lastThinking = ''; userTouched = false; modelTouched = false; lastControl = ''; tries = 0; settleUntil = 0; verifyCount = 0; freshAt = 0;
     if (why) logEvent('fresh start: ' + why);
   };
 
