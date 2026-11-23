@@ -1,16 +1,28 @@
 // ==UserScript==
 // @name         AI Studio Desktop Defaults
 // @namespace    com.des.aistudio-defaults
-// @version      0.3
+// @version      0.4
 // @description  Desktop AI Studio: every new chat and every visit starts on your chosen model (default Hydrogen) at the highest thinking level. Change the defaults with the gear button at the bottom left.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
+// @noframes
 // @grant        none
 // ==/UserScript==
 
 (function () {
   'use strict';
+  const VERSION = '0.4';
+  if (window.top !== window.self) return;
   const STORE = 'aistudio-desktop-defaults';
+  // Short event log shown in the settings card, so a screenshot tells what the script did and why.
+  const LOG = [];
+  const stamp = () => new Date().toTimeString().slice(0, 8);
+  const logEvent = (message) => {
+    LOG.push(stamp() + ' ' + message);
+    while (LOG.length > 10) LOG.shift();
+    const box = document.getElementById('aisd-log');
+    if (box) box.textContent = LOG.join('\n');
+  };
   const DEFAULTS = { enabled: true, model: 'hydrogen', thinking: 'highest' };
   const loadSettings = () => {
     try { return Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem(STORE) || '{}')); } catch (error) { return Object.assign({}, DEFAULTS); }
@@ -245,7 +257,7 @@
       if (id) e.id = id;
       return e;
     };
-    card.appendChild(make('div', 'font-weight:bold;margin-bottom:8px', 'AI Studio defaults'));
+    card.appendChild(make('div', 'font-weight:bold;margin-bottom:8px', 'AI Studio defaults v' + VERSION));
     const onRow = make('label', 'display:block;margin-bottom:8px');
     const onBox = make('input', '', '', 'aisd-on');
     onBox.type = 'checkbox';
@@ -275,6 +287,8 @@
     card.appendChild(save);
     card.appendChild(now);
     card.appendChild(make('div', 'margin-top:8px;font-size:12px;opacity:.85', '', 'aisd-msg'));
+    card.appendChild(make('div', 'margin-top:8px;font-size:11px;opacity:.7;white-space:pre-wrap;font-family:monospace;max-height:150px;overflow:auto', '', 'aisd-log'));
+    card.appendChild(make('div', 'margin-top:4px;font-size:11px;opacity:.7;font-family:monospace', '', 'aisd-state'));
     document.body.appendChild(gear);
     document.body.appendChild(card);
     const $ = (id) => card.querySelector(id);
@@ -285,13 +299,13 @@
       $('#aisd-think').value = s.thinking || 'highest';
     };
     const read = () => ({ enabled: $('#aisd-on').checked, model: $('#aisd-model').value.trim(), thinking: $('#aisd-think').value });
-    gear.onclick = () => { fill(); $('#aisd-msg').textContent = ''; card.style.display = card.style.display === 'none' ? 'block' : 'none'; };
+    gear.onclick = () => { fill(); $('#aisd-log').textContent = LOG.join('\n'); $('#aisd-msg').textContent = ''; card.style.display = card.style.display === 'none' ? 'block' : 'none'; };
     $('#aisd-save').onclick = () => { saveSettings(read()); $('#aisd-msg').textContent = 'Saved. Used from the next new chat.'; };
     $('#aisd-now').onclick = async () => {
       saveSettings(read());
       $('#aisd-msg').textContent = 'Applying...';
       const r = await applyDefaults(loadSettings());
-      if (r.ok) { doneFor = 'applied'; appliedModel = modelKey(); lastThinking = thinkingNow(); userTouched = false; }
+      if (r.ok) { doneFor = 'applied'; appliedModel = modelKey(); lastThinking = thinkingNow(); userTouched = false; settleUntil = Date.now() + 20000; nextVerify = Date.now() + 3000; verifyCount = 0; logEvent('apply now: ' + r.note); }
       $('#aisd-msg').textContent = (r.ok ? 'Done: ' : 'Not fully applied: ') + r.note;
     };
   };
@@ -305,7 +319,14 @@
   let userTouched = false;
   let tries = 0;
   let busy = false;
-  const resetState = () => { doneFor = ''; appliedModel = ''; lastThinking = ''; userTouched = false; tries = 0; };
+  let freshAt = 0;
+  let settleUntil = 0;
+  let nextVerify = 0;
+  let verifyCount = 0;
+  const resetState = (why) => {
+    doneFor = ''; appliedModel = ''; lastThinking = ''; userTouched = false; tries = 0; settleUntil = 0; verifyCount = 0; freshAt = 0;
+    if (why) logEvent('fresh start: ' + why);
+  };
 
   // Your own clicks on the model or thinking controls count as a manual choice and are respected until the next fresh chat.
   const settingsTarget = (t) => {
@@ -317,18 +338,20 @@
   };
   const navTarget = (t) => {
     const e = t && t.closest ? t.closest('a,button,[role="link"],[role="button"]') : null;
-    return !!(e && /^(playground|new chat|chat)$/i.test(text(e).replace(/\s+/g, ' ')) || e && /new_chat/.test(e.getAttribute('href') || ''));
+    if (!e) return false;
+    const label = text(e).replace(/\s+/g, ' ');
+    return /new_chat/.test(e.getAttribute('href') || '') || (label.length < 40 && /\b(playground|new chat)\b/i.test(label));
   };
   const watchClicks = () => {
     document.addEventListener('pointerdown', (ev) => {
       if (busy) return;
-      if (navTarget(ev.target)) { resetState(); return; }
-      if (settingsTarget(ev.target)) userTouched = true;
+      if (navTarget(ev.target)) { resetState('clicked ' + text(ev.target.closest('a,button,[role="link"],[role="button"]')).replace(/\s+/g, ' ').slice(0, 20)); return; }
+      if (settingsTarget(ev.target)) { if (!userTouched) logEvent('you changed a run setting: respecting it'); userTouched = true; }
     }, true);
     document.addEventListener('keydown', (ev) => {
       if (busy) return;
       const t = document.activeElement;
-      if (settingsTarget(t)) userTouched = true;
+      if (settingsTarget(t)) { if (!userTouched) logEvent('you changed a run setting: respecting it'); userTouched = true; }
     }, true);
   };
 
@@ -341,11 +364,43 @@
     return !!b && !modelInfo(b).includes(want);
   };
 
+  const showState = () => {
+    const box = document.getElementById('aisd-state');
+    if (!box) return;
+    const t = thinkingSelect();
+    box.textContent = 'page: ' + location.pathname + (chatIsEmpty() ? ' (empty)' : ' (has messages)') + ' | panel: ' + (t || modelButton() ? 'open' : 'closed') + ' | thinking now: ' + (t ? text(t) : '?') + ' | state: ' + (doneFor || 'waiting') + (userTouched ? ' | your choice kept' : '');
+  };
+  const applyAndRecord = async (settings, why, recheck) => {
+    busy = true;
+    try {
+      const r = await applyDefaults(settings);
+      const noControl = /no thinking level control/.test(r.note || '');
+      if (noControl && Date.now() - freshAt < 15000) {
+        // The page may still be drawing the settings (slow machine or just after a page change): not the same as a model without the control.
+        logEvent(why + ': thinking control not there yet, will retry');
+        return false;
+      }
+      if (r.ok || noControl) {
+        doneFor = 'applied'; appliedModel = modelKey(); lastThinking = thinkingNow(); userTouched = false;
+        if (!recheck) { settleUntil = Date.now() + 20000; nextVerify = Date.now() + 3000; verifyCount = 0; }
+        logEvent(why + ': ' + (r.note || 'ok'));
+        return true;
+      }
+      tries += 1;
+      logEvent(why + ' failed (' + tries + '): ' + r.note);
+      return false;
+    } finally { busy = false; }
+  };
+
   const tick = async () => {
-    try { buildSettingsUi(); } catch (error) { /* the settings button is optional */ }
+    try { buildSettingsUi(); showState(); } catch (error) { /* the settings button is optional */ }
     const settings = loadSettings();
     if (!settings.enabled) return;
-    if (!onNewChat() || !chatIsEmpty()) { resetState(); return; }
+    if (!onNewChat() || !chatIsEmpty()) {
+      if (doneFor || userTouched) resetState(onNewChat() ? 'chat has messages' : 'left the new chat page');
+      return;
+    }
+    if (!freshAt) freshAt = Date.now();
     if (busy) return;
     if (doneFor === 'applied') {
       if (userTouched) {
@@ -355,24 +410,33 @@
           busy = true;
           try {
             const r = await withSettings(() => chooseThinking(wantedThinking(settings)));
-            if (r.ok || /no thinking level control/.test(r.note || '')) { appliedModel = modelKey(); lastThinking = thinkingNow(); }
+            if (r.ok || /no thinking level control/.test(r.note || '')) { appliedModel = modelKey(); lastThinking = thinkingNow(); logEvent('model changed by you: thinking set again (' + (r.note || 'ok') + ')'); }
           } finally { busy = false; }
         }
         return;
       }
       // Not touched by you: if AI Studio reset the model or thinking level, set them again.
-      const drifted = modelMismatch(settings) || (settings.thinking !== 'none' && thinkingSelect() && lastThinking && thinkingNow() !== lastThinking);
-      if (!drifted) return;
-      doneFor = '';
-      tries = 0;
+      const readable = !!thinkingSelect();
+      const lateControl = settings.thinking !== 'none' && readable && !lastThinking; // the control showed up after we gave up on it
+      const drifted = modelMismatch(settings) || lateControl || (settings.thinking !== 'none' && readable && lastThinking && thinkingNow() !== lastThinking);
+      if (drifted) {
+        logEvent(lateControl ? 'thinking control appeared late: setting it' : 'AI Studio changed it to "' + thinkingNow() + '": setting it again');
+        doneFor = '';
+        tries = 0;
+        freshAt = Date.now();
+      } else if (!readable && Date.now() < settleUntil && Date.now() >= nextVerify && verifyCount < 3) {
+        // The settings panel is closed (narrow window), so the value cannot be read. Check again a few times just after a fresh chat,
+        // because AI Studio sets its own defaults a moment after the page changes.
+        verifyCount += 1;
+        nextVerify = Date.now() + (verifyCount === 1 ? 5000 : 7000);
+        await applyAndRecord(settings, 'recheck ' + verifyCount, true);
+        return;
+      } else {
+        return;
+      }
     }
     if (tries >= 6) return;
-    busy = true;
-    try {
-      const r = await applyDefaults(settings);
-      if (r.ok || /no thinking level control/.test(r.note || '')) { doneFor = 'applied'; appliedModel = modelKey(); lastThinking = thinkingNow(); userTouched = false; }
-      else { tries += 1; console.warn('AI Studio defaults:', r.note); }
-    } finally { busy = false; }
+    await applyAndRecord(settings, 'apply');
   };
 
   const start = () => { watchClicks(); setInterval(() => tick().catch((e) => { window.__aisdErr = String(e && e.stack || e); }), 700); };
