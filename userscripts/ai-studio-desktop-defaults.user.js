@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Studio Desktop Defaults
 // @namespace    com.des.aistudio-defaults
-// @version      0.1
+// @version      0.2
 // @description  Desktop AI Studio: every new chat and every visit starts on your chosen model (default Hydrogen) at the highest thinking level. Change the defaults with the gear button at the bottom left.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
@@ -254,22 +254,23 @@
     card.appendChild(onRow);
     const modelRow = make('label', 'display:block;margin-bottom:8px', 'Model (name or part of its id; empty = leave as is)');
     modelRow.appendChild(document.createElement('br'));
-    modelRow.appendChild(make('input', 'width:100%;box-sizing:border-box;padding:4px;margin-top:4px;color:#000', '', 'aisd-model'));
+    modelRow.appendChild(make('input', 'width:100%;box-sizing:border-box;padding:4px 6px;margin-top:4px;color:#fff;background:#3a3a3a;border:1px solid #777;border-radius:6px;font:14px sans-serif', '', 'aisd-model'));
     card.appendChild(modelRow);
     const thinkRow = make('label', 'display:block;margin-bottom:10px', 'Thinking level');
     thinkRow.appendChild(document.createElement('br'));
-    const sel = make('select', 'width:100%;padding:4px;margin-top:4px;color:#000', '', 'aisd-think');
+    const sel = make('select', 'width:100%;padding:4px 6px;margin-top:4px;color:#fff;background:#3a3a3a;border:1px solid #777;border-radius:6px;font:14px sans-serif', '', 'aisd-think');
     [['highest', 'Highest the model offers'], ['Extra High', 'Extra High'], ['High', 'High'], ['Medium', 'Medium'], ['Low', 'Low'], ['none', 'Leave as is']].forEach(([v, t]) => {
       const o = document.createElement('option');
       o.value = v;
       o.textContent = t;
+      o.style.cssText = 'color:#fff;background:#3a3a3a';
       sel.appendChild(o);
     });
     thinkRow.appendChild(sel);
     card.appendChild(thinkRow);
-    const save = make('button', 'padding:6px 10px;margin-right:6px', 'Save', 'aisd-save');
+    const save = make('button', 'padding:6px 10px;margin-right:6px;color:#fff;background:#444;border:1px solid #777;border-radius:6px;cursor:pointer;font:14px sans-serif', 'Save', 'aisd-save');
     save.type = 'button';
-    const now = make('button', 'padding:6px 10px', 'Save and apply now', 'aisd-now');
+    const now = make('button', 'padding:6px 10px;color:#fff;background:#444;border:1px solid #777;border-radius:6px;cursor:pointer;font:14px sans-serif', 'Save and apply now', 'aisd-now');
     now.type = 'button';
     card.appendChild(save);
     card.appendChild(now);
