@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DesVoice to AI Studio
 // @namespace    com.des.desvoice
-// @version      0.3
+// @version      0.4
 // @description  Sets the highest thinking level on every fresh AI Studio chat, and runs prompts DesVoice puts in the link (#dv=...). Works with the phone layout.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
@@ -216,7 +216,8 @@
   };
 
   const chatIsEmpty = () => !document.querySelector('ms-chat-turn');
-  const onNewChat = () => /^\/prompts\/new_chat/.test(location.pathname);
+  // AI Studio can prefix the path with the Google account number, e.g. /u/0/prompts/new_chat.
+  const onNewChat = () => /^(\/u\/\d+)?\/prompts\/new_chat/.test(location.pathname);
 
   // 3. A prompt from DesVoice: set model and thinking, type the prompt, press Run only if everything worked.
   const runRequest = async () => {
