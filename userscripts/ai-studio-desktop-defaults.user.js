@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Studio Desktop Defaults
 // @namespace    com.des.aistudio-defaults
-// @version      0.7
+// @version      0.8
 // @description  Desktop AI Studio: every new chat and every visit starts on your chosen model (default Hydrogen) at the highest thinking level. Change the defaults with the gear button at the bottom left.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
@@ -11,7 +11,7 @@
 
 (function () {
   'use strict';
-  const VERSION = '0.7';
+  const VERSION = '0.8';
   if (window.top !== window.self) return;
   const STORE = 'aistudio-desktop-defaults';
   // Short event log shown in the settings card, so a screenshot tells what the script did and why.
