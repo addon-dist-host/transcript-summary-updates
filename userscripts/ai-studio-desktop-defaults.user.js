@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Studio Desktop Defaults
 // @namespace    com.des.aistudio-defaults
-// @version      0.5
+// @version      0.6
 // @description  Desktop AI Studio: every new chat and every visit starts on your chosen model (default Hydrogen) at the highest thinking level. Change the defaults with the gear button at the bottom left.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
@@ -11,7 +11,7 @@
 
 (function () {
   'use strict';
-  const VERSION = '0.5';
+  const VERSION = '0.6';
   if (window.top !== window.self) return;
   const STORE = 'aistudio-desktop-defaults';
   // Short event log shown in the settings card, so a screenshot tells what the script did and why.
@@ -117,6 +117,12 @@
     return b ? (modelInfo(b).match(MODEL_ID) || [''])[0] : '';
   };
 
+  const clearModelSearch = () => {
+    const clear = all('button').find((e) => /clear search/.test(label(e)) || /clear search/.test(text(e).toLowerCase()));
+    if (clear) { clear.click(); return; }
+    const box = all('input').find((e) => /search|filter|find/.test(label(e)) && !e.closest('#aisd-card') && e.value);
+    if (box) setText(box, '');
+  };
   const chooseModel = async (model) => {
     const wanted = model.toLowerCase();
     const button = modelButton();
@@ -124,20 +130,27 @@
     if (modelInfo(button).includes(wanted)) return { ok: true, note: 'model already ' + model };
     button.click();
     await sleep(900);
-    const search = all('input').find((e) => /search|filter|find/.test(label(e)));
-    if (search) {
-      setText(search, model);
-      await sleep(900);
+    const findHit = () => all('.cdk-overlay-container button,.cdk-overlay-container [role="option"],.cdk-overlay-container mat-option,.cdk-overlay-container [role="menuitem"],.cdk-overlay-container [role="radio"],.cdk-overlay-container li,button')
+      .filter((e) => !e.closest('#aisd-card') && e !== button && text(e).length < 900 && (' ' + text(e).toLowerCase() + ' ').includes(wanted) && /\b(?:gemini|gemma)[a-z0-9.]*(?:-[a-z0-9.]+)+\b/.test(text(e).toLowerCase()))
+      .sort((x, y) => text(x).length - text(y).length)[0];
+    // Look in the full list first; type in the search box only if the model is not visible, and clear it again afterwards.
+    let hit = await until(findHit, 2500);
+    let typed = null;
+    if (!hit) {
+      typed = all('input').find((e) => /search|filter|find/.test(label(e))) || null;
+      if (typed) {
+        setText(typed, model);
+        await sleep(900);
+        hit = await until(findHit, 4000);
+      }
     }
-    const hit = await until(() => all('.cdk-overlay-container button,.cdk-overlay-container [role="option"],.cdk-overlay-container mat-option,.cdk-overlay-container [role="menuitem"],.cdk-overlay-container [role="radio"],.cdk-overlay-container li')
-      .filter((e) => text(e).length < 900 && (' ' + text(e).toLowerCase() + ' ').includes(wanted))
-      .sort((x, y) => text(x).length - text(y).length)[0], 4000);
     if (!hit) {
       escape();
       return { ok: false, note: model + ' not listed' };
     }
     hit.click();
     await sleep(1200);
+    clearModelSearch();
     if (!modelButton()) { // on a phone the settings panel closes after picking a model: open it again
       const toggle = panelToggle();
       if (toggle) toggle.click();
@@ -306,7 +319,7 @@
       saveSettings(read());
       $('#aisd-msg').textContent = 'Applying...';
       const r = await applyDefaults(loadSettings());
-      if (r.ok) { doneFor = 'applied'; appliedModel = modelKey(); lastThinking = thinkingNow(); userTouched = false; settleUntil = Date.now() + 20000; nextVerify = Date.now() + 3000; verifyCount = 0; logEvent('apply now: ' + r.note); }
+      if (r.ok) { doneFor = 'applied'; appliedModel = modelKey(); lastThinking = thinkingNow(); userTouched = false; modelTouched = false; settleUntil = Date.now() + 20000; nextVerify = Date.now() + 3000; verifyCount = 0; logEvent('apply now: ' + r.note); }
       $('#aisd-msg').textContent = (r.ok ? 'Done: ' : 'Not fully applied: ') + r.note;
     };
   };
@@ -317,7 +330,9 @@
   let doneFor = '';
   let appliedModel = '';
   let lastThinking = '';
-  let userTouched = false;
+  let userTouched = false; // you picked a thinking level yourself
+  let modelTouched = false; // you picked a model yourself (thinking is still kept at your default)
+  let lastControl = '';
   let tries = 0;
   let busy = false;
   let freshAt = 0;
@@ -325,17 +340,29 @@
   let nextVerify = 0;
   let verifyCount = 0;
   const resetState = (why) => {
-    doneFor = ''; appliedModel = ''; lastThinking = ''; userTouched = false; tries = 0; settleUntil = 0; verifyCount = 0; freshAt = 0;
+    doneFor = ''; appliedModel = ''; lastThinking = ''; userTouched = false; modelTouched = false; lastControl = ''; tries = 0; settleUntil = 0; verifyCount = 0; freshAt = 0;
     if (why) logEvent('fresh start: ' + why);
   };
 
-  // Your own clicks on the model or thinking controls count as a manual choice and are respected until the next fresh chat.
-  const settingsTarget = (t) => {
-    if (!t || !t.closest) return false;
-    if (t.closest('#aisd-card,#aisd-gear')) return false;
-    if (t.closest('mat-select,mat-option,[role="option"],[role="listbox"],.cdk-overlay-container')) return true;
+  // Which control did you use? A model pick only pauses the model default; the thinking default is kept for the new model.
+  // A pick in the Thinking level dropdown itself is the one thing left alone until the next fresh chat.
+  const settingsKind = (t) => {
+    if (!t || !t.closest) return '';
+    if (t.closest('#aisd-card,#aisd-gear')) return '';
+    const ts = thinkingSelect();
+    if (ts && ts.contains(t)) return 'thinking';
     const mb = modelButton();
-    return !!(mb && mb.contains(t));
+    if (mb && mb.contains(t)) return 'model';
+    if (t.closest('mat-option') && !t.closest('.cdk-overlay-container button')) return lastControl || 'thinking';
+    if (t.closest('mat-select,[role="option"],[role="listbox"],.cdk-overlay-container')) return lastControl || '';
+    return '';
+  };
+  const noteUserPick = (kind) => {
+    if (!kind) return;
+    lastControl = kind;
+    // A pick in the Thinking level dropdown is not an exemption: the saved thinking default (change it with the gear card) governs an empty chat.
+    if (kind === 'thinking') return;
+    if (!modelTouched) { logEvent('you picked a model: keeping thinking at your default for it'); modelTouched = true; }
   };
   const navTarget = (t) => {
     const e = t && t.closest ? t.closest('a,button,[role="link"],[role="button"]') : null;
@@ -347,12 +374,11 @@
     document.addEventListener('pointerdown', (ev) => {
       if (busy) return;
       if (navTarget(ev.target)) { resetState('clicked ' + text(ev.target.closest('a,button,[role="link"],[role="button"]')).replace(/\s+/g, ' ').slice(0, 20)); return; }
-      if (settingsTarget(ev.target)) { if (!userTouched) logEvent('you changed a run setting: respecting it'); userTouched = true; }
+      noteUserPick(settingsKind(ev.target));
     }, true);
     document.addEventListener('keydown', (ev) => {
       if (busy) return;
-      const t = document.activeElement;
-      if (settingsTarget(t)) { if (!userTouched) logEvent('you changed a run setting: respecting it'); userTouched = true; }
+      noteUserPick(settingsKind(document.activeElement));
     }, true);
   };
 
@@ -369,7 +395,7 @@
     const box = document.getElementById('aisd-state');
     if (!box) return;
     const t = thinkingSelect();
-    box.textContent = 'page: ' + location.pathname + (chatIsEmpty() ? ' (empty)' : ' (has messages)') + ' | panel: ' + (t || modelButton() ? 'open' : 'closed') + ' | thinking now: ' + (t ? text(t) : '?') + ' | state: ' + (doneFor || 'waiting') + (userTouched ? ' | your choice kept' : '');
+    box.textContent = 'page: ' + location.pathname + (chatIsEmpty() ? ' (empty)' : ' (has messages)') + ' | panel: ' + (t || modelButton() ? 'open' : 'closed') + ' | thinking now: ' + (t ? text(t) : '?') + ' | state: ' + (doneFor || 'waiting') + (userTouched ? ' | your thinking choice kept' : '') + (modelTouched ? ' | your model choice kept' : '');
   };
   const applyAndRecord = async (settings, why, recheck) => {
     busy = true;
@@ -382,7 +408,7 @@
         return false;
       }
       if (r.ok || noControl) {
-        doneFor = 'applied'; appliedModel = modelKey(); lastThinking = thinkingNow(); userTouched = false;
+        doneFor = 'applied'; appliedModel = modelKey(); lastThinking = thinkingNow(); userTouched = false; modelTouched = false;
         if (!recheck) { settleUntil = Date.now() + 20000; nextVerify = Date.now() + 3000; verifyCount = 0; }
         logEvent(why + ': ' + (r.note || 'ok'));
         return true;
@@ -398,22 +424,30 @@
     const settings = loadSettings();
     if (!settings.enabled) return;
     if (!onNewChat() || !chatIsEmpty()) {
-      if (doneFor || userTouched) resetState(onNewChat() ? 'chat has messages' : 'left the new chat page');
+      if (doneFor || userTouched || modelTouched) resetState(onNewChat() ? 'chat has messages' : 'left the new chat page');
       return;
     }
     if (!freshAt) freshAt = Date.now();
     if (busy) return;
     if (doneFor === 'applied') {
-      if (userTouched) {
-        // You picked something yourself. If you switched model, keep thinking at your chosen level for it; the model is not forced back.
+      if (modelTouched) {
+        // You chose another model. The model is not forced back, but thinking stays at the saved default for it,
+        // including when AI Studio resets thinking a moment after the model change.
+        if (settings.thinking === 'none') return;
         const key = modelKey();
-        if (key && key !== appliedModel && settings.thinking !== 'none') {
-          busy = true;
-          try {
-            const r = await withSettings(() => chooseThinking(wantedThinking(settings)));
-            if (r.ok || /no thinking level control/.test(r.note || '')) { appliedModel = modelKey(); lastThinking = thinkingNow(); logEvent('model changed by you: thinking set again (' + (r.note || 'ok') + ')'); }
-          } finally { busy = false; }
-        }
+        const readableNow = !!thinkingSelect();
+        const modelChanged = !!key && key !== appliedModel;
+        const thinkDrift = readableNow && lastThinking && thinkingNow() !== lastThinking;
+        const closedCheck = !readableNow && Date.now() < settleUntil && Date.now() >= nextVerify && verifyCount < 3;
+        if (!modelChanged && !thinkDrift && !closedCheck) return;
+        if (closedCheck) { verifyCount += 1; nextVerify = Date.now() + 6000; }
+        if (modelChanged) { settleUntil = Date.now() + 20000; nextVerify = Date.now() + 3000; verifyCount = 0; }
+        busy = true;
+        try {
+          const r = await withSettings(() => chooseThinking(wantedThinking(settings)));
+          if (r.ok || /no thinking level control/.test(r.note || '')) { appliedModel = modelKey(); lastThinking = thinkingNow(); }
+          logEvent((modelChanged ? 'model changed by you' : thinkDrift ? 'AI Studio changed thinking' : 'recheck') + ': thinking set again (' + (r.note || 'ok') + ')');
+        } finally { busy = false; }
         return;
       }
       // Not touched by you: if AI Studio reset the model or thinking level, set them again.
