@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Studio Desktop Defaults
 // @namespace    com.des.aistudio-defaults
-// @version      0.2
+// @version      0.3
 // @description  Desktop AI Studio: every new chat and every visit starts on your chosen model (default Hydrogen) at the highest thinking level. Change the defaults with the gear button at the bottom left.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
@@ -291,45 +291,91 @@
       saveSettings(read());
       $('#aisd-msg').textContent = 'Applying...';
       const r = await applyDefaults(loadSettings());
+      if (r.ok) { doneFor = 'applied'; appliedModel = modelKey(); lastThinking = thinkingNow(); userTouched = false; }
       $('#aisd-msg').textContent = (r.ok ? 'Done: ' : 'Not fully applied: ') + r.note;
     };
   };
 
-  // Fresh visit or fresh chat (empty new-chat page): apply once per page. A model or thinking change you make yourself afterwards is left alone.
-  // Chats that already have messages are never touched.
+  // Fresh visit or fresh chat (empty new-chat page): apply the defaults. Chats that already have messages are never touched.
+  // AI Studio can reset the run settings without changing the page address (for example when Playground is clicked while already on a new chat),
+  // so on an empty chat the settings are checked every tick and set again if they drifted, unless you changed them yourself.
   let doneFor = '';
   let appliedModel = '';
+  let lastThinking = '';
+  let userTouched = false;
   let tries = 0;
   let busy = false;
+  const resetState = () => { doneFor = ''; appliedModel = ''; lastThinking = ''; userTouched = false; tries = 0; };
+
+  // Your own clicks on the model or thinking controls count as a manual choice and are respected until the next fresh chat.
+  const settingsTarget = (t) => {
+    if (!t || !t.closest) return false;
+    if (t.closest('#aisd-card,#aisd-gear')) return false;
+    if (t.closest('mat-select,mat-option,[role="option"],[role="listbox"],.cdk-overlay-container')) return true;
+    const mb = modelButton();
+    return !!(mb && mb.contains(t));
+  };
+  const navTarget = (t) => {
+    const e = t && t.closest ? t.closest('a,button,[role="link"],[role="button"]') : null;
+    return !!(e && /^(playground|new chat|chat)$/i.test(text(e).replace(/\s+/g, ' ')) || e && /new_chat/.test(e.getAttribute('href') || ''));
+  };
+  const watchClicks = () => {
+    document.addEventListener('pointerdown', (ev) => {
+      if (busy) return;
+      if (navTarget(ev.target)) { resetState(); return; }
+      if (settingsTarget(ev.target)) userTouched = true;
+    }, true);
+    document.addEventListener('keydown', (ev) => {
+      if (busy) return;
+      const t = document.activeElement;
+      if (settingsTarget(t)) userTouched = true;
+    }, true);
+  };
+
+  const wantedThinking = (settings) => (settings.thinking === 'highest' ? null : [settings.thinking]);
+  const thinkingNow = () => { const c = thinkingSelect(); return c ? text(c).toLowerCase() : ''; };
+  const modelMismatch = (settings) => {
+    const want = (settings.model || '').trim().toLowerCase();
+    if (!want) return false;
+    const b = modelButton();
+    return !!b && !modelInfo(b).includes(want);
+  };
+
   const tick = async () => {
-    buildSettingsUi();
+    try { buildSettingsUi(); } catch (error) { /* the settings button is optional */ }
     const settings = loadSettings();
     if (!settings.enabled) return;
-    if (!onNewChat() || !chatIsEmpty()) { doneFor = ''; tries = 0; return; }
+    if (!onNewChat() || !chatIsEmpty()) { resetState(); return; }
     if (busy) return;
     if (doneFor === 'applied') {
-      // You switched model on an empty chat: keep thinking at your chosen level for the new model (model is not forced back).
-      const key = modelKey();
-      if (key && key !== appliedModel && settings.thinking !== 'none') {
-        busy = true;
-        try {
-          const r = await withSettings(() => chooseThinking(settings.thinking === 'highest' ? null : [settings.thinking]));
-          if (r.ok || /no thinking level control/.test(r.note || '')) appliedModel = modelKey();
-        } finally { busy = false; }
+      if (userTouched) {
+        // You picked something yourself. If you switched model, keep thinking at your chosen level for it; the model is not forced back.
+        const key = modelKey();
+        if (key && key !== appliedModel && settings.thinking !== 'none') {
+          busy = true;
+          try {
+            const r = await withSettings(() => chooseThinking(wantedThinking(settings)));
+            if (r.ok || /no thinking level control/.test(r.note || '')) { appliedModel = modelKey(); lastThinking = thinkingNow(); }
+          } finally { busy = false; }
+        }
+        return;
       }
-      return;
+      // Not touched by you: if AI Studio reset the model or thinking level, set them again.
+      const drifted = modelMismatch(settings) || (settings.thinking !== 'none' && thinkingSelect() && lastThinking && thinkingNow() !== lastThinking);
+      if (!drifted) return;
+      doneFor = '';
+      tries = 0;
     }
     if (tries >= 6) return;
     busy = true;
     try {
       const r = await applyDefaults(settings);
-      if (r.ok) { doneFor = 'applied'; appliedModel = modelKey(); }
-      else if (/no thinking level control/.test(r.note || '')) { doneFor = 'applied'; appliedModel = modelKey(); }
+      if (r.ok || /no thinking level control/.test(r.note || '')) { doneFor = 'applied'; appliedModel = modelKey(); lastThinking = thinkingNow(); userTouched = false; }
       else { tries += 1; console.warn('AI Studio defaults:', r.note); }
     } finally { busy = false; }
   };
 
-  const start = () => setInterval(() => tick().catch((e) => { window.__aisdErr = String(e && e.stack || e); }), 1500);
+  const start = () => { watchClicks(); setInterval(() => tick().catch((e) => { window.__aisdErr = String(e && e.stack || e); }), 700); };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 })();
