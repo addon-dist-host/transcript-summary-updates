@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DesVoice to AI Studio
 // @namespace    com.des.desvoice
-// @version      0.5
-// @description  Sets the highest thinking level on every fresh AI Studio chat, and runs prompts DesVoice puts in the link (#dv=...). Works with the phone layout.
+// @version      0.6
+// @description  Sets the highest thinking level and your default system instructions on every fresh AI Studio chat, puts the cursor in the prompt box, and runs prompts DesVoice puts in the link (#dv=...). Works with the phone layout.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
 // @grant        none
@@ -290,7 +290,74 @@
     if (a && (/^(textarea|input)$/i.test(a.tagName) || a.isContentEditable) && Date.now() - lastKey < 8000) return true; // typing in an empty box
     return Array.from(document.querySelectorAll('textarea,[contenteditable="true"]')).some((e) => ((e.value !== undefined ? e.value : e.textContent) || '').trim().length > 0);
   };
+
+  // Default system instructions (gear button, bottom left). Fill when the field is empty or still holds the text this script put there; text you wrote yourself is kept.
+  const STORE = 'desvoice-defaults';
+  const loadSys = () => { try { return Object.assign({ sysOn: false, sys: '', sysLast: '' }, JSON.parse(localStorage.getItem(STORE) || '{}')); } catch (error) { return { sysOn: false, sys: '', sysLast: '' }; } };
+  const saveSys = (v) => { try { localStorage.setItem(STORE, JSON.stringify(v)); } catch (error) { /* ignore */ } };
+  const sysCard = () => document.querySelector('[data-test-system-instructions-card]');
+  const sysBox = () => all('textarea').find((e) => /system instructions/.test(label(e)));
+  const applySystem = async () => {
+    const cfg = loadSys();
+    const want = (cfg.sys || '').trim();
+    if (!cfg.sysOn || !want) return { ok: true, note: 'system instructions off' };
+    const card = sysCard();
+    if (!card) return { ok: false, note: 'no System instructions card' };
+    card.click();
+    const box = await until(sysBox, 5000);
+    if (!box) return { ok: false, note: 'System instructions panel did not open' };
+    const have = (box.value || '').trim();
+    let note = 'system instructions kept (field already has other text)';
+    if (have === want) note = 'system instructions already set';
+    else if (!have || (cfg.sysLast && have === cfg.sysLast.trim())) {
+      setText(box, want);
+      await sleep(400);
+      box.dispatchEvent(new Event('blur', { bubbles: true }));
+      if ((box.value || '').trim() !== want) return { ok: false, note: 'system instructions not accepted' };
+      const cur = loadSys(); cur.sysLast = want; saveSys(cur);
+      note = 'system instructions set';
+    }
+    const close = clickables().find((b) => /close panel/.test(label(b)) || /^close$/.test(text(b)));
+    if (close) close.click(); else escape();
+    await sleep(500);
+    return { ok: true, note };
+  };
+  const buildGear = () => {
+    if (document.getElementById('dvs-gear') || !document.body) return;
+    const mk = (tag, css, content, id) => { const e = document.createElement(tag); if (css) e.style.cssText = css; if (content) e.textContent = content; if (id) e.id = id; return e; };
+    const gear = mk('button', 'position:fixed;left:8px;bottom:150px;z-index:99998;width:34px;height:34px;border-radius:17px;border:1px solid #888;background:#222;color:#fff;font:18px sans-serif;opacity:.6', '\u2699', 'dvs-gear');
+    gear.type = 'button';
+    gear.title = 'Default system instructions';
+    const card = mk('div', 'display:none;position:fixed;left:8px;right:8px;bottom:190px;z-index:99999;padding:12px;border-radius:12px;background:#222;color:#fff;font:14px sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.5)', '', 'dvs-card');
+    card.appendChild(mk('div', 'font-weight:bold;margin-bottom:8px', 'DesVoice defaults v0.6'));
+    const row = mk('label', 'display:block;margin-bottom:8px');
+    const on = mk('input', '', '', 'dvs-on');
+    on.type = 'checkbox';
+    row.appendChild(on);
+    row.appendChild(document.createTextNode(' Default system instructions on new chats (text you typed yourself is kept)'));
+    card.appendChild(row);
+    const ta = mk('textarea', 'width:100%;box-sizing:border-box;height:120px;padding:6px;color:#fff;background:#3a3a3a;border:1px solid #777;border-radius:6px;font:12px sans-serif;resize:vertical', '', 'dvs-text');
+    card.appendChild(ta);
+    const save = mk('button', 'margin-top:8px;padding:8px 12px;color:#fff;background:#444;border:1px solid #777;border-radius:6px;font:14px sans-serif', 'Save', 'dvs-save');
+    save.type = 'button';
+    card.appendChild(save);
+    card.appendChild(mk('span', 'margin-left:8px;font-size:12px', '', 'dvs-msg'));
+    document.body.appendChild(gear);
+    document.body.appendChild(card);
+    gear.onclick = () => { const c = loadSys(); on.checked = !!c.sysOn; ta.value = c.sys || ''; card.style.display = card.style.display === 'none' ? 'block' : 'none'; };
+    save.onclick = () => { const c = loadSys(); c.sysOn = on.checked; c.sys = ta.value; saveSys(c); card.querySelector('#dvs-msg').textContent = 'Saved. Used from the next new chat.'; };
+  };
+  // Put the cursor in the prompt box once, after the defaults are applied, only if nothing is typed and nothing is focused yet.
+  const focusPrompt = () => {
+    const box = editor();
+    if (!box || promptBusy()) return false;
+    const a = document.activeElement;
+    if (a && a !== document.body && a !== box && (/^(textarea|input)$/i.test(a.tagName) || a.isContentEditable)) return false;
+    box.focus();
+    return document.activeElement === box;
+  };
   const autoMax = async () => {
+    try { buildGear(); } catch (error) { /* optional */ }
     if (!onNewChat() || !chatIsEmpty()) { wasEmpty = false; lastThinking = ''; lastApplied = ''; pendingKey = ''; return; }
     const key = location.pathname + '|' + modelFromAddress();
     const freshChat = !wasEmpty;
@@ -309,11 +376,12 @@
       return;
     }
     let seen = '';
-    const result = await withSettings(async () => { const r = await chooseThinking(null); const c = thinkingSelect(); if (c) seen = text(c).toLowerCase(); return r; });
+    const result = await withSettings(async () => { const r = await chooseThinking(null); if (r.ok || /no thinking level control/.test(r.note || '')) { const sr = await applySystem(); if (!sr.ok) return { ok: false, note: sr.note }; } const c = thinkingSelect(); if (c) seen = text(c).toLowerCase(); return r; });
     if (result.ok) {
       attempts = 0;
       lastApplied = key;
       if (seen) lastThinking = seen;
+      if (why === 'apply') { await sleep(400); focusPrompt(); }
     } else {
       attempts += 1;
       if (why === 'apply' && attempts < 6) { wasEmpty = false; pendingKey = ''; } // failed: try again on a later tick
