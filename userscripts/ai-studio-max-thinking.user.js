@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DesVoice to AI Studio
 // @namespace    com.des.desvoice
-// @version      0.4
+// @version      0.5
 // @description  Sets the highest thinking level on every fresh AI Studio chat, and runs prompts DesVoice puts in the link (#dv=...). Works with the phone layout.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
@@ -120,6 +120,12 @@
     return b ? (modelInfo(b).match(MODEL_ID) || [''])[0] : '';
   };
 
+  const clearModelSearch = () => {
+    const clear = all('button').find((e) => /clear search/.test(label(e)) || /clear search/.test(text(e).toLowerCase()));
+    if (clear) { clear.click(); return; }
+    const box = all('input').find((e) => /search|filter|find/.test(label(e)) && !e.closest('#aisd-card') && e.value);
+    if (box) setText(box, '');
+  };
   const chooseModel = async (model) => {
     const wanted = model.toLowerCase();
     const button = modelButton();
@@ -127,20 +133,27 @@
     if (modelInfo(button).includes(wanted)) return { ok: true, note: 'model already ' + model };
     button.click();
     await sleep(900);
-    const search = all('input').find((e) => /search|filter|find/.test(label(e)));
-    if (search) {
-      setText(search, model);
-      await sleep(900);
+    const findHit = () => all('.cdk-overlay-container button,.cdk-overlay-container [role="option"],.cdk-overlay-container mat-option,.cdk-overlay-container [role="menuitem"],.cdk-overlay-container [role="radio"],.cdk-overlay-container li,button')
+      .filter((e) => !e.closest('#aisd-card') && e !== button && text(e).length < 900 && (' ' + text(e).toLowerCase() + ' ').includes(wanted) && /\b(?:gemini|gemma)[a-z0-9.]*(?:-[a-z0-9.]+)+\b/.test(text(e).toLowerCase()))
+      .sort((x, y) => text(x).length - text(y).length)[0];
+    // Look in the full list first; type in the search box only if the model is not visible, and clear it again afterwards.
+    let hit = await until(findHit, 2500);
+    let typed = null;
+    if (!hit) {
+      typed = all('input').find((e) => /search|filter|find/.test(label(e))) || null;
+      if (typed) {
+        setText(typed, model);
+        await sleep(900);
+        hit = await until(findHit, 4000);
+      }
     }
-    const hit = await until(() => all('.cdk-overlay-container button,.cdk-overlay-container [role="option"],.cdk-overlay-container mat-option,.cdk-overlay-container [role="menuitem"],.cdk-overlay-container [role="radio"],.cdk-overlay-container li')
-      .filter((e) => text(e).length < 900 && (' ' + text(e).toLowerCase() + ' ').includes(wanted))
-      .sort((x, y) => text(x).length - text(y).length)[0], 4000);
     if (!hit) {
       escape();
       return { ok: false, note: model + ' not listed' };
     }
     hit.click();
     await sleep(1200);
+    clearModelSearch();
     if (!modelButton()) { // on a phone the settings panel closes after picking a model: open it again
       const toggle = panelToggle();
       if (toggle) toggle.click();
@@ -256,24 +269,55 @@
   };
 
   // 4. Every fresh chat: highest thinking level for whichever model is selected.
+  // AI Studio can reset the thinking level a moment after the page loads or the model changes. The settings panel is closed on a phone,
+  // so the script never opens it on a timer: it sets the level once when the page is fresh and once when the model changes (the address
+  // shows the model as ?model=..., visible with the panel closed). It tries again only if that failed, and reacts at once if the panel
+  // happens to be open and shows a different level. Limitation: a site reset that comes later, with the panel closed and no address
+  // change, cannot be seen without opening the panel, so it is not corrected. Nothing is opened while a prompt has text in it or a
+  // text box has focus. Chats with messages are never touched.
   let lastApplied = '';
   let wasEmpty = false;
   let attempts = 0;
+  let lastThinking = '';
+  let pendingKey = '';
+  let pendingTicks = 0;
+  const modelFromAddress = () => (new URLSearchParams(location.search).get('model') || '').toLowerCase();
+  // A text box the page focuses by itself must not block the apply forever, so a focused empty box only counts while keys are being pressed.
+  let lastKey = 0;
+  ['keydown', 'input', 'compositionstart'].forEach((n) => document.addEventListener(n, () => { lastKey = Date.now(); }, true));
+  const promptBusy = () => {
+    const a = document.activeElement;
+    if (a && (/^(textarea|input)$/i.test(a.tagName) || a.isContentEditable) && Date.now() - lastKey < 8000) return true; // typing in an empty box
+    return Array.from(document.querySelectorAll('textarea,[contenteditable="true"]')).some((e) => ((e.value !== undefined ? e.value : e.textContent) || '').trim().length > 0);
+  };
   const autoMax = async () => {
-    if (!onNewChat() || !chatIsEmpty()) { wasEmpty = false; return; }
-    const key = location.pathname + '|' + modelKey();
+    if (!onNewChat() || !chatIsEmpty()) { wasEmpty = false; lastThinking = ''; lastApplied = ''; pendingKey = ''; return; }
+    const key = location.pathname + '|' + modelFromAddress();
     const freshChat = !wasEmpty;
     wasEmpty = true;
-    if (!freshChat && key === lastApplied) return;
-    if (!freshChat && !modelKey()) return;
-    lastApplied = key;
-    const result = await withSettings(() => chooseThinking(null));
+    const control = thinkingSelect();
+    let why = '';
+    if (freshChat || key !== lastApplied) {
+      // Let the page settle for two ticks after a change so AI Studio's own reset comes first, then set the level once.
+      if (key !== pendingKey) { pendingKey = key; pendingTicks = 0; }
+      pendingTicks += 1;
+      if (pendingTicks < 2 || promptBusy()) { if (freshChat) wasEmpty = false; return; }
+      why = 'apply';
+    } else if (control && lastThinking && text(control).toLowerCase() !== lastThinking && !promptBusy()) {
+      why = 'recheck';
+    } else {
+      return;
+    }
+    let seen = '';
+    const result = await withSettings(async () => { const r = await chooseThinking(null); const c = thinkingSelect(); if (c) seen = text(c).toLowerCase(); return r; });
     if (result.ok) {
       attempts = 0;
-      lastApplied = location.pathname + '|' + modelKey();
+      lastApplied = key;
+      if (seen) lastThinking = seen;
     } else {
       attempts += 1;
-      if (attempts < 6) wasEmpty = false; // page may still be loading: try again on the next tick
+      if (why === 'apply' && attempts < 6) { wasEmpty = false; pendingKey = ''; } // failed: try again on a later tick
+      else if (why === 'apply') lastApplied = key;
       if (result.note && !/no thinking level control/.test(result.note)) console.warn('DesVoice:', result.note);
     }
   };
