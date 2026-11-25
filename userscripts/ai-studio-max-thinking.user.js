@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DesVoice to AI Studio
 // @namespace    com.des.desvoice
-// @version      2.0
-// @description  Sets the highest thinking level and your default system instructions on every fresh AI Studio chat, puts the cursor in the prompt box, and runs prompts DesVoice puts in the link (#dv=...). Works with the phone layout.
+// @version      3.0
+// @description  Sets the highest thinking level and your default system instructions on every fresh AI Studio chat, puts the cursor in the prompt box (tap empty space once on phones), can pick your model, and runs prompts DesVoice puts in the link (#dv=...). Works with the phone layout.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
 // @grant        none
@@ -313,6 +313,7 @@
   // change, cannot be seen without opening the panel, so it is not corrected. Nothing is opened while a prompt has text in it or a
   // text box has focus. Chats with messages are never touched.
   let lastApplied = '';
+  let modelWarned = false;
   let wasEmpty = false;
   let attempts = 0;
   let lastThinking = '';
@@ -330,7 +331,7 @@
 
   // Default system instructions (gear button, bottom left). Fill when the field is empty or still holds the text this script put there; text you wrote yourself is kept.
   const STORE = 'desvoice-defaults';
-  const loadSys = () => { try { return Object.assign({ sysOn: false, sys: '', sysLast: '' }, JSON.parse(localStorage.getItem(STORE) || '{}')); } catch (error) { return { sysOn: false, sys: '', sysLast: '' }; } };
+  const loadSys = () => { try { return Object.assign({ sysOn: false, sys: '', sysLast: '', model: '' }, JSON.parse(localStorage.getItem(STORE) || '{}')); } catch (error) { return { sysOn: false, sys: '', sysLast: '', model: '' }; } };
   const saveSys = (v) => { try { localStorage.setItem(STORE, JSON.stringify(v)); } catch (error) { /* ignore */ } };
   const sysCard = () => document.querySelector('[data-test-system-instructions-card]');
   const sysBox = () => all('textarea').find((e) => /system instructions/.test(label(e)));
@@ -359,20 +360,36 @@
     await sleep(500);
     return { ok: true, note };
   };
+  const placeGear = () => {
+    const gear = document.getElementById('dvs-gear');
+    if (!gear) return;
+    const plus = all('button').find((e) => /^new chat$/.test((e.getAttribute('aria-label') || '').trim().toLowerCase()) && e.getBoundingClientRect().top < 90);
+    if (!plus) return;
+    const r = plus.getBoundingClientRect();
+    gear.style.top = Math.round(r.top + (r.height - 32) / 2) + 'px';
+    gear.style.left = Math.max(0, Math.round(r.left - 34)) + 'px';
+    gear.style.right = 'auto';
+    gear.style.color = getComputedStyle(plus).color || 'inherit';
+  };
   const buildGear = () => {
     if (document.getElementById('dvs-gear') || !document.body) return;
     const mk = (tag, css, content, id) => { const e = document.createElement(tag); if (css) e.style.cssText = css; if (content) e.textContent = content; if (id) e.id = id; return e; };
-    const gear = mk('button', 'position:fixed;left:8px;bottom:150px;z-index:99998;width:34px;height:34px;border-radius:17px;border:1px solid #888;background:#222;color:#fff;font:18px sans-serif;opacity:.6', '\u2699', 'dvs-gear');
+    const gear = mk('button', 'position:fixed;top:16px;right:116px;z-index:99998;width:32px;height:32px;padding:0;border-radius:16px;border:0;background:transparent;color:inherit;font:20px sans-serif;line-height:32px;text-align:center;cursor:pointer', '\u2699', 'dvs-gear');
     gear.type = 'button';
     gear.title = 'Default system instructions';
-    const card = mk('div', 'display:none;position:fixed;left:8px;right:8px;bottom:190px;z-index:99999;padding:12px;border-radius:12px;background:#222;color:#fff;font:14px sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.5)', '', 'dvs-card');
-    card.appendChild(mk('div', 'font-weight:bold;margin-bottom:8px', 'DesVoice defaults v1.0'));
+    const card = mk('div', 'display:none;position:fixed;left:8px;right:8px;top:56px;max-height:80vh;overflow:auto;z-index:99999;padding:12px;border-radius:12px;background:#222;color:#fff;font:14px sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.5)', '', 'dvs-card');
+    card.appendChild(mk('div', 'font-weight:bold;margin-bottom:8px', 'DesVoice settings v3.0'));
     const row = mk('label', 'display:block;margin-bottom:8px');
     const on = mk('input', '', '', 'dvs-on');
     on.type = 'checkbox';
     row.appendChild(on);
     row.appendChild(document.createTextNode(' Default system instructions on new chats (text you typed yourself is kept)'));
     card.appendChild(row);
+    const mlabel = mk('div', 'margin:4px 0 4px', 'Model (as shown in the model list, e.g. gemini-4-hydrogen). Empty keeps the page default.');
+    card.appendChild(mlabel);
+    const mi = mk('input', 'width:100%;box-sizing:border-box;margin-bottom:8px;padding:8px;color:#fff;background:#3a3a3a;border:1px solid #777;border-radius:6px;font:14px sans-serif', '', 'dvs-model');
+    mi.type = 'text'; mi.setAttribute('autocapitalize', 'off'); mi.setAttribute('autocomplete', 'off'); mi.setAttribute('spellcheck', 'false');
+    card.appendChild(mi);
     const ta = mk('textarea', 'width:100%;box-sizing:border-box;height:120px;padding:6px;color:#fff;background:#3a3a3a;border:1px solid #777;border-radius:6px;font:12px sans-serif;resize:vertical', '', 'dvs-text');
     card.appendChild(ta);
     const save = mk('button', 'margin-top:8px;padding:8px 12px;color:#fff;background:#444;border:1px solid #777;border-radius:6px;font:14px sans-serif', 'Save', 'dvs-save');
@@ -381,8 +398,8 @@
     card.appendChild(mk('span', 'margin-left:8px;font-size:12px', '', 'dvs-msg'));
     document.body.appendChild(gear);
     document.body.appendChild(card);
-    gear.onclick = () => { const c = loadSys(); on.checked = !!c.sysOn; ta.value = c.sys || ''; card.style.display = card.style.display === 'none' ? 'block' : 'none'; };
-    save.onclick = () => { const c = loadSys(); c.sysOn = on.checked; c.sys = ta.value; saveSys(c); card.querySelector('#dvs-msg').textContent = 'Saved. Used from the next new chat.'; };
+    gear.onclick = () => { const c = loadSys(); on.checked = !!c.sysOn; ta.value = c.sys || ''; mi.value = c.model || ''; card.style.display = card.style.display === 'none' ? 'block' : 'none'; };
+    save.onclick = () => { const c = loadSys(); c.sysOn = on.checked; c.sys = ta.value; c.model = mi.value.trim(); saveSys(c); lastApplied = ''; pendingKey = ''; card.querySelector('#dvs-msg').textContent = 'Saved. Used from the next new chat.'; };
   };
 
   // Put the cursor in the prompt box once after the defaults are applied. Phone browsers ignore a programmatic
@@ -413,21 +430,21 @@
     try { box.focus({ preventScroll: true }); } catch (error) { box.focus(); }
     placeCaret(box);
   };
+  // Firefox on Android lets a script set activeElement without opening the keyboard, so a successful focus() is never
+  // treated as done. The prompt stays armed until you tap the box, type, or use another control.
   const tryFocusPrompt = () => {
     if (focusDone || !focusUntil) return;
     if (Date.now() > focusUntil) { focusUntil = 0; return; }
     const box = editor();
     if (!box) return;
     const a = document.activeElement;
-    if (a === box) { focusDone = true; focusUntil = 0; return; }
     if (textBoxFocused(a) && a !== box) { focusUntil = 0; return; }
     if (boxText(box).length > 0) { focusUntil = 0; return; }
-    focusBox(box);
-    if (document.activeElement === box) { focusDone = true; focusUntil = 0; }
+    if (a !== box) focusBox(box);
   };
-  const wantFocus = () => { focusDone = false; focusUntil = Date.now() + 30000; tryFocusPrompt(); };
-  // A real tap is the only thing that opens the keyboard on a phone. A tap on empty page space is used to focus the
-  // prompt box for you; a tap on the box, another text field, the gear, or any control keeps its own meaning.
+  const wantFocus = () => { focusDone = false; focusUntil = Date.now() + 600000; tryFocusPrompt(); toast('Ready. Tap empty space once to start typing.'); };
+  // A real tap is the only thing that opens the keyboard on a phone. A tap on empty page space blurs and refocuses the
+  // prompt box inside that tap; a tap on the box, another text field, the gear, or any control keeps its own meaning.
   const tapFocus = (event) => {
     if (!event.isTrusted || focusDone || !focusUntil) return;
     const target = event.target;
@@ -439,8 +456,9 @@
     const a = document.activeElement;
     if (textBoxFocused(a) && a !== box) { focusUntil = 0; return; }
     if (boxText(box).length > 0) { focusUntil = 0; return; }
+    try { box.blur(); } catch (error) { /* optional */ }
     focusBox(box);
-    if (document.activeElement === box) { focusDone = true; focusUntil = 0; }
+    focusDone = true; focusUntil = 0;
   };
   document.addEventListener('click', tapFocus, true);
   const stopFocus = (event) => { if (event.isTrusted) focusUntil = 0; };
@@ -449,7 +467,7 @@
   document.addEventListener('visibilitychange', () => tryFocusPrompt());
   const focusPrompt = () => wantFocus();
   const autoMax = async () => {
-    try { buildGear(); } catch (error) { /* optional */ }
+    try { buildGear(); placeGear(); } catch (error) { /* optional */ }
     if (!onNewChat() || !chatIsEmpty()) { wasEmpty = false; lastThinking = ''; lastApplied = ''; pendingKey = ''; return; }
     const key = location.pathname + '|' + modelFromAddress();
     const freshChat = !wasEmpty;
@@ -469,6 +487,12 @@
     }
     let seen = '';
     const result = await withSettings(async () => {
+      const cfgM = loadSys();
+      if (cfgM.model && cfgM.model.trim()) {
+        const mr = await chooseModel(cfgM.model.trim());
+        if (!mr.ok) { console.warn('DesVoice:', mr.note); if (!modelWarned) { modelWarned = true; toast('model not set: ' + mr.note); } }
+        else modelWarned = false;
+      }
       const r = await chooseThinking(null);
       // The system instructions do not depend on the thinking step: always try them, so one failure does not block the other.
       const sr = await applySystem();
