@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DesVoice to AI Studio
 // @namespace    com.des.desvoice
-// @version      1.1
+// @version      2.0
 // @description  Sets the highest thinking level and your default system instructions on every fresh AI Studio chat, puts the cursor in the prompt box, and runs prompts DesVoice puts in the link (#dv=...). Works with the phone layout.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start

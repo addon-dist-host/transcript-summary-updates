@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Studio Desktop Defaults
 // @namespace    com.des.aistudio-defaults
-// @version      1.1
+// @version      2.0
 // @description  Defaults fresh chats to your model, highest thinking and Google Search, then hides run settings and focuses the prompt. Drag the gear beside Playground to move it.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
