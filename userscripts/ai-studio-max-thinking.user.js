@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         DesVoice to AI Studio
 // @namespace    com.des.desvoice
-// @version      1.0
+// @version      1.1
 // @description  Sets the highest thinking level and your default system instructions on every fresh AI Studio chat, puts the cursor in the prompt box, and runs prompts DesVoice puts in the link (#dv=...). Works with the phone layout.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
 // @grant        none
+// @updateURL    https://raw.githubusercontent.com/addon-dist-host/transcript-summary-updates/main/userscripts/ai-studio-max-thinking.user.js
+// @downloadURL  https://raw.githubusercontent.com/addon-dist-host/transcript-summary-updates/main/userscripts/ai-studio-max-thinking.user.js
 // ==/UserScript==
 
 (function () {
@@ -383,26 +385,66 @@
     save.onclick = () => { const c = loadSys(); c.sysOn = on.checked; c.sys = ta.value; saveSys(c); card.querySelector('#dvs-msg').textContent = 'Saved. Used from the next new chat.'; };
   };
 
-  // Put the cursor in the prompt box once after the defaults are applied. Firefox keeps the keyboard in the address bar until the page has focus,
-  // so this keeps trying for 30 seconds and also when the page gains focus, and stops as soon as you type, click, or focus another box.
+  // Put the cursor in the prompt box once after the defaults are applied. Phone browsers ignore a programmatic
+  // focus() until you have touched the page, so this keeps trying for 30 seconds and when the page gains focus,
+  // and also focuses the box from inside your first real tap on empty page space, which is what lets Android open
+  // the keyboard. It stops once the cursor is in the box, when you type, or when you use another control.
   let focusUntil = 0;
   let focusDone = false;
   const ownUi = (e) => !!(e && e.closest && e.closest('#dvs-card,#dvs-gear,#aisd-card,#aisd-gear'));
   const textBoxFocused = (a) => a && a !== document.body && ((a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|range|color)$/i.test(a.type))) || a.isContentEditable);
+  const boxText = (box) => (((box && box.value !== undefined) ? box.value : (box && box.textContent)) || '').trim();
+  const placeCaret = (box) => {
+    try {
+      if (box.tagName === 'TEXTAREA' || box.tagName === 'INPUT') {
+        const end = (box.value || '').length;
+        box.setSelectionRange(end, end);
+      } else if (box.isContentEditable) {
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(box);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    } catch (error) { /* optional */ }
+  };
+  const focusBox = (box) => {
+    try { box.focus({ preventScroll: true }); } catch (error) { box.focus(); }
+    placeCaret(box);
+  };
   const tryFocusPrompt = () => {
     if (focusDone || !focusUntil) return;
     if (Date.now() > focusUntil) { focusUntil = 0; return; }
     const box = editor();
     if (!box) return;
     const a = document.activeElement;
+    if (a === box) { focusDone = true; focusUntil = 0; return; }
     if (textBoxFocused(a) && a !== box) { focusUntil = 0; return; }
-    if (((box.value !== undefined ? box.value : box.textContent) || '').trim().length > 0) { focusUntil = 0; return; }
-    try { box.focus({ preventScroll: true }); } catch (error) { box.focus(); }
-    if (document.activeElement === box && document.hasFocus()) { focusDone = true; focusUntil = 0; }
+    if (boxText(box).length > 0) { focusUntil = 0; return; }
+    focusBox(box);
+    if (document.activeElement === box) { focusDone = true; focusUntil = 0; }
   };
   const wantFocus = () => { focusDone = false; focusUntil = Date.now() + 30000; tryFocusPrompt(); };
+  // A real tap is the only thing that opens the keyboard on a phone. A tap on empty page space is used to focus the
+  // prompt box for you; a tap on the box, another text field, the gear, or any control keeps its own meaning.
+  const tapFocus = (event) => {
+    if (!event.isTrusted || focusDone || !focusUntil) return;
+    const target = event.target;
+    if (!target || ownUi(target)) { focusUntil = 0; return; }
+    const box = editor();
+    if (!box) { focusUntil = 0; return; }
+    if (target === box || (box.contains && box.contains(target)) || (target.closest && target.closest('textarea,[contenteditable="true"]'))) { focusDone = true; focusUntil = 0; return; }
+    if (target.closest && target.closest('a,button,[role="button"],[role="combobox"],[role="switch"],[role="tab"],[role="option"],[role="menuitem"],mat-select,mat-option,select,input,label')) { focusUntil = 0; return; }
+    const a = document.activeElement;
+    if (textBoxFocused(a) && a !== box) { focusUntil = 0; return; }
+    if (boxText(box).length > 0) { focusUntil = 0; return; }
+    focusBox(box);
+    if (document.activeElement === box) { focusDone = true; focusUntil = 0; }
+  };
+  document.addEventListener('click', tapFocus, true);
   const stopFocus = (event) => { if (event.isTrusted) focusUntil = 0; };
-  ['pointerdown', 'keydown', 'touchstart'].forEach((n) => document.addEventListener(n, stopFocus, true));
+  document.addEventListener('keydown', stopFocus, true);
   window.addEventListener('focus', () => tryFocusPrompt());
   document.addEventListener('visibilitychange', () => tryFocusPrompt());
   const focusPrompt = () => wantFocus();
