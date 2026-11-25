@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DesVoice to AI Studio
 // @namespace    com.des.desvoice
-// @version      3.0
+// @version      4.0
 // @description  Sets the highest thinking level and your default system instructions on every fresh AI Studio chat, puts the cursor in the prompt box (tap empty space once on phones), can pick your model, and runs prompts DesVoice puts in the link (#dv=...). Works with the phone layout.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
@@ -66,14 +66,8 @@
     }
     return null;
   };
-  const toast = (message) => {
-    const box = document.createElement('div');
-    box.dataset.aiDefaultsToast = 'true';
-    box.textContent = 'DesVoice: ' + message;
-    box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;padding:10px 14px;border-radius:10px;background:#222;color:#fff;font:14px sans-serif';
-    document.body.appendChild(box);
-    setTimeout(() => box.remove(), 7000);
-  };
+  // No on-screen notices, by request. Messages go to the browser console only.
+  const toast = (message) => { try { console.info('DesVoice: ' + message); } catch (error) { /* ignore */ } };
   const escape = () => {
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
     const backdrop = document.querySelector('.cdk-overlay-backdrop');
@@ -378,7 +372,7 @@
     gear.type = 'button';
     gear.title = 'Default system instructions';
     const card = mk('div', 'display:none;position:fixed;left:8px;right:8px;top:56px;max-height:80vh;overflow:auto;z-index:99999;padding:12px;border-radius:12px;background:#222;color:#fff;font:14px sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.5)', '', 'dvs-card');
-    card.appendChild(mk('div', 'font-weight:bold;margin-bottom:8px', 'DesVoice settings v3.0'));
+    card.appendChild(mk('div', 'font-weight:bold;margin-bottom:8px', 'DesVoice settings v4.0'));
     const row = mk('label', 'display:block;margin-bottom:8px');
     const on = mk('input', '', '', 'dvs-on');
     on.type = 'checkbox';
@@ -442,24 +436,36 @@
     if (boxText(box).length > 0) { focusUntil = 0; return; }
     if (a !== box) focusBox(box);
   };
-  const wantFocus = () => { focusDone = false; focusUntil = Date.now() + 600000; tryFocusPrompt(); toast('Ready. Tap empty space once to start typing.'); };
+  const wantFocus = () => { focusDone = false; focusUntil = Date.now() + 600000; tryFocusPrompt(); };
   // A real tap is the only thing that opens the keyboard on a phone. A tap on empty page space blurs and refocuses the
   // prompt box inside that tap; a tap on the box, another text field, the gear, or any control keeps its own meaning.
+  let downAt = null;
   const tapFocus = (event) => {
     if (!event.isTrusted || focusDone || !focusUntil) return;
     const target = event.target;
-    if (!target || ownUi(target)) { focusUntil = 0; return; }
+    const isClick = event.type === 'click';
+    if (!target || ownUi(target)) { if (isClick) focusUntil = 0; return; }
     const box = editor();
-    if (!box) { focusUntil = 0; return; }
-    if (target === box || (box.contains && box.contains(target)) || (target.closest && target.closest('textarea,[contenteditable="true"]'))) { focusDone = true; focusUntil = 0; return; }
-    if (target.closest && target.closest('a,button,[role="button"],[role="combobox"],[role="switch"],[role="tab"],[role="option"],[role="menuitem"],mat-select,mat-option,select,input,label')) { focusUntil = 0; return; }
+    if (!box) { if (isClick) focusUntil = 0; return; }
+    if (target === box || (box.contains && box.contains(target)) || (target.closest && target.closest('textarea,[contenteditable="true"]'))) { if (isClick) { focusDone = true; focusUntil = 0; } return; }
+    if (target.closest && target.closest('a,button,[role="button"],[role="combobox"],[role="switch"],[role="tab"],[role="option"],[role="menuitem"],mat-select,mat-option,select,input,label')) { if (isClick) focusUntil = 0; return; }
     const a = document.activeElement;
-    if (textBoxFocused(a) && a !== box) { focusUntil = 0; return; }
-    if (boxText(box).length > 0) { focusUntil = 0; return; }
+    if (textBoxFocused(a) && a !== box) { if (isClick) focusUntil = 0; return; }
+    if (boxText(box).length > 0) { if (isClick) focusUntil = 0; return; }
+    // A swipe is not a tap: only a still touch counts, so scrolling never pops the keyboard.
+    if (event.type === 'touchend') {
+      const t = event.changedTouches && event.changedTouches[0];
+      if (!downAt || !t || Math.abs(t.clientX - downAt.x) > 10 || Math.abs(t.clientY - downAt.y) > 10) return;
+    }
+    // Focus inside the tap at touchend, mouseup and click: the browser may only open the keyboard for one of them.
     try { box.blur(); } catch (error) { /* optional */ }
     focusBox(box);
-    focusDone = true; focusUntil = 0;
+    try { if (navigator.virtualKeyboard && navigator.virtualKeyboard.show) navigator.virtualKeyboard.show(); } catch (error) { /* optional */ }
+    if (isClick) { focusDone = true; focusUntil = 0; }
   };
+  document.addEventListener('touchstart', (event) => { const t = event.touches && event.touches[0]; downAt = t ? { x: t.clientX, y: t.clientY } : null; }, { capture: true, passive: true });
+  document.addEventListener('touchend', tapFocus, { capture: true, passive: true });
+  document.addEventListener('mouseup', tapFocus, true);
   document.addEventListener('click', tapFocus, true);
   const stopFocus = (event) => { if (event.isTrusted) focusUntil = 0; };
   document.addEventListener('keydown', stopFocus, true);
