@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DesVoice to AI Studio
 // @namespace    com.des.desvoice
-// @version      4.0
+// @version      5.0
 // @description  Sets the highest thinking level and your default system instructions on every fresh AI Studio chat, puts the cursor in the prompt box (tap empty space once on phones), can pick your model, and runs prompts DesVoice puts in the link (#dv=...). Works with the phone layout.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
@@ -372,7 +372,7 @@
     gear.type = 'button';
     gear.title = 'Default system instructions';
     const card = mk('div', 'display:none;position:fixed;left:8px;right:8px;top:56px;max-height:80vh;overflow:auto;z-index:99999;padding:12px;border-radius:12px;background:#222;color:#fff;font:14px sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.5)', '', 'dvs-card');
-    card.appendChild(mk('div', 'font-weight:bold;margin-bottom:8px', 'DesVoice settings v4.0'));
+    card.appendChild(mk('div', 'font-weight:bold;margin-bottom:8px', 'DesVoice settings v5.0'));
     const row = mk('label', 'display:block;margin-bottom:8px');
     const on = mk('input', '', '', 'dvs-on');
     on.type = 'checkbox';
@@ -402,6 +402,8 @@
   // the keyboard. It stops once the cursor is in the box, when you type, or when you use another control.
   let focusUntil = 0;
   let focusDone = false;
+  let scriptUntil = 0; // scripted focus retries stop after 30 seconds; the tap stays armed for 10 minutes
+  let lastGestureAt = 0;
   const ownUi = (e) => !!(e && e.closest && e.closest('#dvs-card,#dvs-gear,#aisd-card,#aisd-gear'));
   const textBoxFocused = (a) => a && a !== document.body && ((a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|range|color)$/i.test(a.type))) || a.isContentEditable);
   const boxText = (box) => (((box && box.value !== undefined) ? box.value : (box && box.textContent)) || '').trim();
@@ -429,6 +431,7 @@
   const tryFocusPrompt = () => {
     if (focusDone || !focusUntil) return;
     if (Date.now() > focusUntil) { focusUntil = 0; return; }
+    if (Date.now() > scriptUntil) return;
     const box = editor();
     if (!box) return;
     const a = document.activeElement;
@@ -436,7 +439,7 @@
     if (boxText(box).length > 0) { focusUntil = 0; return; }
     if (a !== box) focusBox(box);
   };
-  const wantFocus = () => { focusDone = false; focusUntil = Date.now() + 600000; tryFocusPrompt(); };
+  const wantFocus = () => { focusDone = false; focusUntil = Date.now() + 600000; scriptUntil = Date.now() + 30000; tryFocusPrompt(); };
   // A real tap is the only thing that opens the keyboard on a phone. A tap on empty page space blurs and refocuses the
   // prompt box inside that tap; a tap on the box, another text field, the gear, or any control keeps its own meaning.
   let downAt = null;
@@ -457,9 +460,12 @@
       const t = event.changedTouches && event.changedTouches[0];
       if (!downAt || !t || Math.abs(t.clientX - downAt.x) > 10 || Math.abs(t.clientY - downAt.y) > 10) return;
     }
-    // Focus inside the tap at touchend, mouseup and click: the browser may only open the keyboard for one of them.
-    try { box.blur(); } catch (error) { /* optional */ }
-    focusBox(box);
+    // One tap fires touchend, then emulated mouseup and click. Only the first of them blurs and refocuses; the later ones
+    // just restore focus if the page took it away, so a later blur never closes a keyboard the first one opened.
+    const now = Date.now();
+    const first = now - lastGestureAt > 800;
+    if (first) { lastGestureAt = now; try { box.blur(); } catch (error) { /* optional */ } }
+    if (first || document.activeElement !== box) focusBox(box);
     try { if (navigator.virtualKeyboard && navigator.virtualKeyboard.show) navigator.virtualKeyboard.show(); } catch (error) { /* optional */ }
     if (isClick) { focusDone = true; focusUntil = 0; }
   };
