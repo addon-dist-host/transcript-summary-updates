@@ -1,4 +1,4 @@
-# AI Studio userscript 8.1
+# AI Studio userscript 8.2
 
 8.1: desktop "Save and apply now" no longer races the background drift check and retries a not-yet-drawn model list before reporting a miss. The phone path is unchanged from 8.0.
 
@@ -11,6 +11,7 @@
 - The desktop failure pop-up is gone; problems go to the card log and the browser console.
 - Model matching now prefers the model's own id over an alias that only mentions it in its description (for example `gemini-3.5-flash-lite` no longer lands on "Flash-Lite Latest").
 - The desktop state line no longer shows "thinking now: ?" when the panel is closed. It shows the last value read with the panel open. Apply results now include a read-back of thinking level and model taken from the live controls. Early "settings button not found" attempts right after page load are waiting, not failures.
+- 8.2, phone path, optional background log only: adds fixed-wording events "generation active", "generation no longer active" (this means the Stop button is gone; it does not tell completion, stop or error apart), "generation active|not active at hide|return", "page shows an error" (only when the last chat turn newly contains the phrase "internal error", not for one already on the page at load) and "network type 4g|3g|2g|slow-2g" where the browser exposes it. No text from the page is stored. These detectors were exercised on a mock page in Chrome, not on a real generation, Firefox Android or Tampermonkey.
 
 ## Install and replace
 
