@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DesVoice to AI Studio
 // @namespace    com.des.desvoice
-// @version      7.0
+// @version      7.1
 // @description  Sets the highest thinking level and your default system instructions on every fresh AI Studio chat, puts the cursor in the prompt box (tap empty space once on phones), can pick your model, and runs prompts DesVoice puts in the link (#dv=...). Works with the phone layout.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
@@ -391,8 +391,20 @@
     const plus = all('button').find((e) => /^new chat$/.test((e.getAttribute('aria-label') || '').trim().toLowerCase()) && e.getBoundingClientRect().top < 90);
     if (!plus) return;
     const r = plus.getBoundingClientRect();
+    // Other header buttons (they appear once a chat has messages) can sit left of the plus: step left past each of them.
+    const row = all('button,a,[role="button"]').filter((e) => {
+      if (e === gear || e === plus || e.closest('#dvs-card,ms-run-settings')) return false;
+      const q = e.getBoundingClientRect();
+      return q.width > 4 && q.height > 4 && q.top < 90 && q.bottom > 0 && q.right <= r.left + 2 && q.left > 60;
+    });
+    let x = r.left - 34;
+    for (let i = 0; i < 8; i += 1) {
+      const hit = row.find((b) => { const q = b.getBoundingClientRect(); return q.right > x - 2 && q.left < x + 34; });
+      if (!hit) break;
+      x = hit.getBoundingClientRect().left - 36;
+    }
     gear.style.top = Math.round(r.top + (r.height - 32) / 2) + 'px';
-    gear.style.left = Math.max(0, Math.round(r.left - 34)) + 'px';
+    gear.style.left = Math.max(0, Math.round(x)) + 'px';
     gear.style.right = 'auto';
     gear.style.color = getComputedStyle(plus).color || 'inherit';
   };
@@ -403,7 +415,7 @@
     gear.type = 'button';
     gear.title = 'Default system instructions';
     const card = mk('div', 'display:none;position:fixed;left:8px;right:8px;top:56px;max-height:80vh;overflow:auto;z-index:99999;padding:12px;border-radius:12px;background:#222;color:#fff;font:14px sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.5)', '', 'dvs-card');
-    card.appendChild(mk('div', 'font-weight:bold;margin-bottom:8px', 'DesVoice settings v7.0'));
+    card.appendChild(mk('div', 'font-weight:bold;margin-bottom:8px', 'DesVoice settings v7.1'));
     const row = mk('label', 'display:block;margin-bottom:8px');
     const on = mk('input', '', '', 'dvs-on');
     on.type = 'checkbox';
