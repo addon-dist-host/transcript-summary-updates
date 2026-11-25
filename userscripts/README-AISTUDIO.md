@@ -1,4 +1,4 @@
-# AI Studio userscript 8.2
+# AI Studio userscript 8.3
 
 8.1: desktop "Save and apply now" no longer races the background drift check and retries a not-yet-drawn model list before reporting a miss. The phone path is unchanged from 8.0.
 
@@ -11,7 +11,8 @@
 - The desktop failure pop-up is gone; problems go to the card log and the browser console.
 - Model matching now prefers the model's own id over an alias that only mentions it in its description (for example `gemini-3.5-flash-lite` no longer lands on "Flash-Lite Latest").
 - The desktop state line no longer shows "thinking now: ?" when the panel is closed. It shows the last value read with the panel open. Apply results now include a read-back of thinking level and model taken from the live controls. Early "settings button not found" attempts right after page load are waiting, not failures.
-- 8.2, phone path, optional background log only: adds fixed-wording events "generation active", "generation no longer active" (this means the Stop button is gone; it does not tell completion, stop or error apart), "generation active|not active at hide|return", "page shows an error" (only when the last chat turn newly contains the phrase "internal error", not for one already on the page at load) and "network type 4g|3g|2g|slow-2g" where the browser exposes it. No text from the page is stored. These detectors were exercised on a mock page in Chrome, not on a real generation, Firefox Android or Tampermonkey.
+- 8.3, phone path, optional background log only: logs failed or slow AI Studio API calls from the browser's own request-timing list, read passively (nothing is intercepted). Fixed wording only: `request <method from a fixed list, or Other> status <0|2xx|3xx|4xx|5xx> <time bucket>`, logged only for a non-2xx status or a call of 30 s or more. Status 0 means the browser reported no status (abort, block, failed connection or status not exposed; it does not say which). A call that never finishes may leave no entry. A 4xx or 5xx status says the server answered with that code; it does not say why. The browser must support `responseStatus` (Firefox 129+, Chrome 109+); on older browsers nothing is logged. No address, header, body, token, prompt or reply is read or stored.
+- 8.3, phone path: a `#dv=` prompt is now put in the box first (about 0.3 s after the box appears), then the settings are applied, and the prompt is put back if the settings step emptied the box. Measured in cloud Chrome only: prompt in box at about 0.35 s instead of 4.1 s, all settings done at about 3.2 s instead of 4.7 s. Phone timings were not measured.
 
 ## Install and replace
 
