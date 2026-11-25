@@ -1,4 +1,6 @@
-# AI Studio userscript 8.0
+# AI Studio userscript 8.1
+
+8.1: desktop "Save and apply now" no longer races the background drift check and retries a not-yet-drawn model list before reporting a miss. The phone path is unchanged from 8.0.
 
 8.0: one script for phone and desktop. Install `ai-studio-max-thinking.user.js` (the canonical install). It chooses phone or desktop behaviour when the page loads (touch screen or a phone browser means phone). It is one file with two device-specific code paths, not one shared engine.
 
