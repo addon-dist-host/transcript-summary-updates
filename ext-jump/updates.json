@@ -6,6 +6,11 @@
      "version": "1.3",
      "update_link": "https://raw.githubusercontent.com/addon-dist-host/transcript-summary-updates/refs/heads/main/ext-jump/ext-jump-1.3.xpi",
      "update_hash": "sha256:3a99defebc023f6469dde07c1c57bfdf20ea4ecf1afb03c1a0c38f13f45bca16"
+    },
+    {
+     "version": "1.4",
+     "update_link": "https://raw.githubusercontent.com/addon-dist-host/transcript-summary-updates/refs/heads/main/ext-jump/ext-jump-1.4.xpi",
+     "update_hash": "sha256:e26f9f1a6167b5f6b61e5f05212cc0acc6519fa04f52ad74aa7d555f6d1b3744"
     }
    ]
   }
