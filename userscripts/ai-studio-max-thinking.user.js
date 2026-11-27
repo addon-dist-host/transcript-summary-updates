@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DesVoice to AI Studio
 // @namespace    com.des.desvoice
-// @version      8.9
+// @version      9.0
 // @description  One script for phone and desktop. Sets your model, the highest thinking level, Google Search and your default system instructions on every fresh AI Studio chat, and puts the cursor in the prompt box.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
@@ -16,8 +16,8 @@
   try { if (window.top !== window.self) return; } catch (error) { return; }
   // One copy only, even if the older separate desktop script is still installed (same page realm only; untested across two managers).
   if (window.__desvoiceActive || window.__aisdActive) return;
-  window.__desvoiceActive = '8.9';
-  window.__aisdActive = '8.9';
+  window.__desvoiceActive = '9.0';
+  window.__aisdActive = '9.0';
   // One font size for every piece of text in the settings card, on phone and desktop (the page's own input rules would otherwise win).
   const fontStyle = () => { if (document.getElementById('dvs-font')) return; const st = document.createElement('style'); st.id = 'dvs-font'; st.textContent = '#dvs-card,#dvs-card *,#aisd-card,#aisd-card *{font-size:14px!important}'; (document.head || document.documentElement).appendChild(st); };
   fontStyle(); document.addEventListener('DOMContentLoaded', fontStyle);
@@ -555,7 +555,7 @@
     gear.type = 'button';
     gear.title = 'Default system instructions';
     const card = mk('div', 'display:none;position:fixed;left:8px;right:8px;top:56px;max-height:80vh;overflow:auto;z-index:99999;padding:12px;border-radius:12px;background:#222;color:#fff;font:14px sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.5)', '', 'dvs-card');
-    card.appendChild(mk('div', 'font-weight:bold;margin-bottom:8px', 'DesVoice settings v8.9'));
+    card.appendChild(mk('div', 'font-weight:bold;margin-bottom:8px', 'DesVoice settings v9.0'));
     const row = mk('label', 'display:block;margin-bottom:8px');
     const on = mk('input', '', '', 'dvs-on');
     on.type = 'checkbox';
@@ -641,7 +641,7 @@
   const tryFocusPrompt = () => {
     if (focusDone || !focusUntil) return;
     if (Date.now() > focusUntil) { focusUntil = 0; return; }
-    return; // v8.9: no scripted focus on the phone. A script focus made SwiftKey show the keyboard once, then the tap blur/refocus made it show again.
+    return; // v9.0: no scripted focus on the phone. A script focus made SwiftKey show the keyboard once, then the tap blur/refocus made it show again.
     if (Date.now() > scriptUntil) return;
     // Never steal focus: only move the cursor while this tab is visible and the window has focus.
     if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
@@ -678,11 +678,16 @@
     const now = Date.now();
     const first = now - lastGestureAt > 800;
     if (first) lastGestureAt = now;
-    if (document.activeElement !== box) focusBox(box); // v8.9: one focus per tap, no blur and no virtualKeyboard.show, so the keyboard opens once
+    // v9.0: runs once, on the final click of the tap (after the browser's own tap blur). If the page already holds the box without a keyboard
+    // (activeElement is the box), blur then focus so the keyboard really opens; otherwise just focus. No scripted focus before the tap, no virtualKeyboard.show.
+    if (document.activeElement === box) { try { box.blur(); } catch (error) { /* optional */ } }
+    focusBox(box);
+    focusDone = true; focusUntil = 0;
+    return;
     if (isClick) { focusDone = true; focusUntil = 0; }
   };
   document.addEventListener('touchstart', (event) => { const t = event.touches && event.touches[0]; downAt = t ? { x: t.clientX, y: t.clientY } : null; }, { capture: true, passive: true });
-  // v8.9: only the final click focuses the box. Handling touchend and mouseup too made the browser's own tap blur land between two focus() calls.
+  // v9.0: only the final click focuses the box. Handling touchend and mouseup too made the browser's own tap blur land between two focus() calls.
   document.addEventListener('click', tapFocus, true);
   const stopFocus = (event) => { if (event.isTrusted) focusUntil = 0; };
   document.addEventListener('keydown', stopFocus, true);
@@ -767,7 +772,7 @@
 
   const runDesktop = () => {
   'use strict';
-  const VERSION = '8.9';
+  const VERSION = '9.0';
   if (window.top !== window.self) return;
   const STORE = 'aistudio-desktop-defaults';
   // Default system instructions, saved once on first run. Edit them with the gear button; your saved text is never overwritten.
