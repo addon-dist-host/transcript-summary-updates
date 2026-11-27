@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DesVoice to AI Studio
 // @namespace    com.des.desvoice
-// @version      8.4
+// @version      8.5
 // @description  One script for phone and desktop. Sets your model, the highest thinking level, Google Search and your default system instructions on every fresh AI Studio chat, and puts the cursor in the prompt box.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
@@ -16,8 +16,8 @@
   try { if (window.top !== window.self) return; } catch (error) { return; }
   // One copy only, even if the older separate desktop script is still installed (same page realm only; untested across two managers).
   if (window.__desvoiceActive || window.__aisdActive) return;
-  window.__desvoiceActive = '8.4';
-  window.__aisdActive = '8.4';
+  window.__desvoiceActive = '8.5';
+  window.__aisdActive = '8.5';
   // One font size for every piece of text in the settings card, on phone and desktop (the page's own input rules would otherwise win).
   const fontStyle = () => { if (document.getElementById('dvs-font')) return; const st = document.createElement('style'); st.id = 'dvs-font'; st.textContent = '#dvs-card,#dvs-card *,#aisd-card,#aisd-card *{font-size:14px!important}'; (document.head || document.documentElement).appendChild(st); };
   fontStyle(); document.addEventListener('DOMContentLoaded', fontStyle);
@@ -558,7 +558,7 @@
     const on = mk('input', '', '', 'dvs-on');
     on.type = 'checkbox';
     row.appendChild(on);
-    row.appendChild(document.createTextNode(' Default system instructions on new chats (text you typed yourself is kept)'));
+    row.appendChild(document.createTextNode(' Use my default system instructions on new chats (untick to turn them off for now; your saved text is kept)'));
     card.appendChild(row);
     const vrow = mk('label', 'display:block;margin-bottom:8px');
     const vk = mk('input', '', '', 'dvs-keep');
@@ -761,7 +761,7 @@
 
   const runDesktop = () => {
   'use strict';
-  const VERSION = '8.4';
+  const VERSION = '8.5';
   if (window.top !== window.self) return;
   const STORE = 'aistudio-desktop-defaults';
   // Default system instructions, saved once on first run. Edit them with the gear button; your saved text is never overwritten.
@@ -1227,7 +1227,7 @@
     const sysOn = make('input', '', '', 'aisd-sys-on');
     sysOn.type = 'checkbox';
     sysRow.appendChild(sysOn);
-    sysRow.appendChild(document.createTextNode(' Default system instructions (new chats; leaves text you typed yourself alone)'));
+    sysRow.appendChild(document.createTextNode(' Use my default system instructions on new chats (untick to turn them off for now; your saved text is kept)'));
     sysRow.appendChild(make('textarea', 'width:100%;box-sizing:border-box;height:110px;padding:4px 6px;margin-top:4px;color:#fff;background:#3a3a3a;border:1px solid #777;border-radius:6px;font:14px sans-serif;resize:vertical', '', 'aisd-sys'));
     card.appendChild(sysRow);
     const save = make('button', 'padding:6px 10px;margin-right:6px;color:#fff;background:#444;border:1px solid #777;border-radius:6px;cursor:pointer;font:14px sans-serif', 'Save', 'aisd-save');
@@ -1427,10 +1427,22 @@
     await applyAndRecord(settings, 'apply');
   };
 
-  const start = () => { watchClicks(); setInterval(() => { try { tryFocusPrompt(); } catch (error) { /* optional */ } tick().catch((e) => { window.__aisdErr = String(e && e.stack || e); }); }, 700); };
+  // Desktop: the right-hand Run settings panel is always kept closed. If it is open and the script is not using it, close it.
+  let keepClosedAt = 0;
+  const keepPanelClosed = () => {
+    if (busy || Date.now() - keepClosedAt < 800) return;
+    const b = closePanelButton();
+    if (!b) return;
+    const q = b.getBoundingClientRect();
+    if (q.width < 1 || q.height < 1) return;
+    keepClosedAt = Date.now();
+    b.click();
+  };
+  const start = () => { watchClicks(); setInterval(() => { try { keepPanelClosed(); } catch (error) { /* optional */ } try { tryFocusPrompt(); } catch (error) { /* optional */ } tick().catch((e) => { window.__aisdErr = String(e && e.stack || e); }); }, 700); };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
   };
 
   if (phone) runPhone(); else runDesktop();
 })();
+
