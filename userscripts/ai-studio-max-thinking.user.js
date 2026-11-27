@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DesVoice to AI Studio
 // @namespace    com.des.desvoice
-// @version      8.7
+// @version      8.8
 // @description  One script for phone and desktop. Sets your model, the highest thinking level, Google Search and your default system instructions on every fresh AI Studio chat, and puts the cursor in the prompt box.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
@@ -641,6 +641,7 @@
   const tryFocusPrompt = () => {
     if (focusDone || !focusUntil) return;
     if (Date.now() > focusUntil) { focusUntil = 0; return; }
+    return; // v8.8: no scripted focus on the phone. A script focus made SwiftKey show the keyboard once, then the tap blur/refocus made it show again.
     if (Date.now() > scriptUntil) return;
     // Never steal focus: only move the cursor while this tab is visible and the window has focus.
     if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
@@ -676,9 +677,8 @@
     // just restore focus if the page took it away, so a later blur never closes a keyboard the first one opened.
     const now = Date.now();
     const first = now - lastGestureAt > 800;
-    if (first) { lastGestureAt = now; try { box.blur(); } catch (error) { /* optional */ } }
-    if (first || document.activeElement !== box) focusBox(box);
-    try { if (navigator.virtualKeyboard && navigator.virtualKeyboard.show) navigator.virtualKeyboard.show(); } catch (error) { /* optional */ }
+    if (first) lastGestureAt = now;
+    if (document.activeElement !== box) focusBox(box); // v8.8: one focus per tap, no blur and no virtualKeyboard.show, so the keyboard opens once
     if (isClick) { focusDone = true; focusUntil = 0; }
   };
   document.addEventListener('touchstart', (event) => { const t = event.touches && event.touches[0]; downAt = t ? { x: t.clientX, y: t.clientY } : null; }, { capture: true, passive: true });
