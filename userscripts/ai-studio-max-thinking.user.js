@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DesVoice to AI Studio
 // @namespace    com.des.desvoice
-// @version      8.5
+// @version      8.6
 // @description  One script for phone and desktop. Sets your model, the highest thinking level, Google Search and your default system instructions on every fresh AI Studio chat, and puts the cursor in the prompt box.
 // @match        https://aistudio.google.com/*
 // @run-at       document-start
@@ -16,8 +16,8 @@
   try { if (window.top !== window.self) return; } catch (error) { return; }
   // One copy only, even if the older separate desktop script is still installed (same page realm only; untested across two managers).
   if (window.__desvoiceActive || window.__aisdActive) return;
-  window.__desvoiceActive = '8.5';
-  window.__aisdActive = '8.5';
+  window.__desvoiceActive = '8.6';
+  window.__aisdActive = '8.6';
   // One font size for every piece of text in the settings card, on phone and desktop (the page's own input rules would otherwise win).
   const fontStyle = () => { if (document.getElementById('dvs-font')) return; const st = document.createElement('style'); st.id = 'dvs-font'; st.textContent = '#dvs-card,#dvs-card *,#aisd-card,#aisd-card *{font-size:14px!important}'; (document.head || document.documentElement).appendChild(st); };
   fontStyle(); document.addEventListener('DOMContentLoaded', fontStyle);
@@ -236,6 +236,8 @@
 
   // 2. Run settings. On a phone the settings panel is closed, so open it first and close it after.
   const thinkingSelect = () => all('mat-select').find((e) => /thinking/.test(label(e))) || null;
+  // Cheap panel check: attribute labels only, no layout or computed styles. The heavy visible-filtered scans run only when this says the panel is there.
+  const panelOpenCheap = () => Array.from(document.querySelectorAll('mat-select')).some((e) => { if (!/thinking/.test(label(e))) return false; const q = e.getBoundingClientRect(); return q.width > 0 && q.height > 0; });
   const panelToggle = () => clickables().find((e) => /run settings/.test(label(e)) && /toggle|open|show/.test(label(e)));
   const closePanelButton = () => clickables().find((e) => /close run settings/.test(label(e)));
   const googleSearchSwitch = () => all('[role="switch"],input[type="checkbox"]').find((e) => /(?:grounding with )?google search/.test(label(e)));
@@ -553,7 +555,7 @@
     gear.type = 'button';
     gear.title = 'Default system instructions';
     const card = mk('div', 'display:none;position:fixed;left:8px;right:8px;top:56px;max-height:80vh;overflow:auto;z-index:99999;padding:12px;border-radius:12px;background:#222;color:#fff;font:14px sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.5)', '', 'dvs-card');
-    card.appendChild(mk('div', 'font-weight:bold;margin-bottom:8px', 'DesVoice settings v8.4'));
+    card.appendChild(mk('div', 'font-weight:bold;margin-bottom:8px', 'DesVoice settings v8.6'));
     const row = mk('label', 'display:block;margin-bottom:8px');
     const on = mk('input', '', '', 'dvs-on');
     on.type = 'checkbox';
@@ -640,6 +642,8 @@
     if (focusDone || !focusUntil) return;
     if (Date.now() > focusUntil) { focusUntil = 0; return; }
     if (Date.now() > scriptUntil) return;
+    // Never steal focus: only move the cursor while this tab is visible and the window has focus.
+    if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
     const box = editor();
     if (!box) return;
     const a = document.activeElement;
@@ -686,13 +690,15 @@
   window.addEventListener('focus', () => tryFocusPrompt());
   document.addEventListener('visibilitychange', () => tryFocusPrompt());
   const focusPrompt = () => wantFocus();
+  let lastGearPlace = 0;
   const autoMax = async () => {
-    try { buildGear(); placeGear(); } catch (error) { /* optional */ }
+    // Gear placement measures layout across the header: once at start, then at most every 5 seconds.
+    try { buildGear(); if (Date.now() - lastGearPlace > 5000) { lastGearPlace = Date.now(); placeGear(); } } catch (error) { /* optional */ }
     if (!onNewChat() || !chatIsEmpty()) { wasEmpty = false; lastThinking = ''; lastApplied = ''; pendingKey = ''; return; }
     const key = location.pathname + '|' + modelFromAddress();
     const freshChat = !wasEmpty;
     wasEmpty = true;
-    const control = thinkingSelect();
+    const control = panelOpenCheap() ? thinkingSelect() : null;
     let why = '';
     if (freshChat || key !== lastApplied) {
       // Let the page settle for two ticks after a change so AI Studio's own reset comes first, then set the level once.
@@ -700,7 +706,7 @@
       pendingTicks += 1;
       if (pendingTicks < 2 || promptBusy()) { if (freshChat) wasEmpty = false; return; }
       why = 'apply';
-    } else if (((control && lastThinking && text(control).toLowerCase() !== lastThinking) || (googleSearchSwitch() && !googleSearchEnabled())) && !promptBusy()) {
+    } else if (((control && lastThinking && text(control).toLowerCase() !== lastThinking) || (panelOpenCheap() && googleSearchSwitch() && !googleSearchEnabled())) && !promptBusy()) {
       why = 'recheck';
     } else {
       return;
@@ -748,6 +754,7 @@
     }
     let busy = false;
     setInterval(async () => {
+      if (document.hidden) return; // a hidden tab has nothing to apply and must not burn CPU
       try { tryFocusPrompt(); } catch (error) { /* optional */ }
       if (busy || sessionStorage.getItem(KEY)) return;
       busy = true;
@@ -761,7 +768,7 @@
 
   const runDesktop = () => {
   'use strict';
-  const VERSION = '8.5';
+  const VERSION = '8.6';
   if (window.top !== window.self) return;
   const STORE = 'aistudio-desktop-defaults';
   // Default system instructions, saved once on first run. Edit them with the gear button; your saved text is never overwritten.
@@ -836,6 +843,8 @@
 
   // 2. Run settings. On a phone the settings panel is closed, so open it first and close it after.
   const thinkingSelect = () => all('mat-select').find((e) => /thinking/.test(label(e))) || null;
+  // Cheap panel check: attribute labels only, no layout or computed styles. The heavy visible-filtered scans run only when this says the panel is there.
+  const panelOpenCheap = () => Array.from(document.querySelectorAll('mat-select')).some((e) => { if (!/thinking/.test(label(e))) return false; const q = e.getBoundingClientRect(); return q.width > 0 && q.height > 0; });
   const panelToggle = () => clickables().find((e) => /run settings/.test(label(e)) && /toggle|open|show/.test(label(e)));
   const closePanelButton = () => clickables().find((e) => /close run settings/.test(label(e)));
   const googleSearchSwitch = () => all('[role="switch"],input[type="checkbox"]').find((e) => /(?:grounding with )?google search/.test(label(e)));
@@ -1016,6 +1025,8 @@
   const tryFocusPrompt = () => {
     if (focusDone || !focusUntil) return;
     if (Date.now() > focusUntil) { focusUntil = 0; return; }
+    // Never steal focus: only move the cursor while this tab is visible and the window has focus.
+    if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
     const box = focusEditor();
     if (!box) return;
     const a = document.activeElement;
@@ -1122,13 +1133,16 @@
     const place = () => {
       let p = saved;
       if (!p) {
-        const link = all('a,button').find((e) => /^playground$/i.test(text(e)));
+        const link = Array.from(document.querySelectorAll('a,button')).find((e) => /^playground$/i.test((e.textContent || '').trim()));
         const r = link && link.getBoundingClientRect();
         // Place beside the Playground text, inside its row rather than on top of it.
         p = r ? { x: r.right + 6, y: r.top + (r.height - 44) / 2 } : { x: 226, y: 62 };
       }
-      gear.style.left = clamp(p.x, innerWidth - 44) + 'px';
-      gear.style.top = clamp(p.y, innerHeight - 44) + 'px';
+      const nx = clamp(p.x, innerWidth - 44) + 'px';
+      const ny = clamp(p.y, innerHeight - 44) + 'px';
+      if (gear.style.left === nx && gear.style.top === ny) return; // already anchored: skip the layout reads in placeCard
+      gear.style.left = nx;
+      gear.style.top = ny;
       placeCard();
     };
     const remember = () => {
@@ -1341,6 +1355,9 @@
   const showState = () => {
     const box = document.getElementById('aisd-state');
     if (!box) return;
+    const stateCard = document.getElementById('aisd-card');
+    if (!stateCard || stateCard.style.display === 'none') return; // the state line only matters while the card is open
+
     const t = thinkingSelect();
     box.textContent = 'page: ' + location.pathname + (chatIsEmpty() ? ' (empty)' : ' (has messages)') + ' | panel: ' + (t || modelButton() ? 'open' : 'closed') + ' | thinking: ' + (t ? text(t) + ' (read now)' : (lastThinking ? lastThinking + ' (last read when the panel was open)' : 'not read yet')) + ' | state: ' + (doneFor || 'waiting') + (userTouched ? ' | your thinking choice kept' : '') + (modelTouched ? ' | your model choice kept' : '');
   };
@@ -1380,6 +1397,8 @@
     }
     if (!freshAt) freshAt = Date.now();
     if (busy) return;
+    // Steady state on an applied chat with the panel closed: nothing readable can drift, so skip the heavy scans.
+    if (doneFor === 'applied' && !panelOpenCheap()) return;
     const prompt = editor();
     if ((prompt && ((prompt.value !== undefined ? prompt.value : prompt.textContent) || '').trim()) || document.querySelector('#aisd-card[style*="display: block"]')) return;
     if (doneFor === 'applied') {
@@ -1431,14 +1450,17 @@
   let keepClosedAt = 0;
   const keepPanelClosed = () => {
     if (busy || Date.now() - keepClosedAt < 800) return;
-    const b = closePanelButton();
+    // Cheap scan: attribute labels only (no layout) across buttons; only the one match gets a real visibility check.
+    const b = Array.from(document.querySelectorAll('button,[role="button"]')).find((e) => /close run settings/.test(label(e)));
     if (!b) return;
     const q = b.getBoundingClientRect();
     if (q.width < 1 || q.height < 1) return;
+    const cs = getComputedStyle(b);
+    if (cs.visibility === 'hidden' || cs.display === 'none') return;
     keepClosedAt = Date.now();
     b.click();
   };
-  const start = () => { watchClicks(); setInterval(() => { try { keepPanelClosed(); } catch (error) { /* optional */ } try { tryFocusPrompt(); } catch (error) { /* optional */ } tick().catch((e) => { window.__aisdErr = String(e && e.stack || e); }); }, 700); };
+  const start = () => { watchClicks(); setInterval(() => { if (document.hidden) return; try { keepPanelClosed(); } catch (error) { /* optional */ } try { tryFocusPrompt(); } catch (error) { /* optional */ } tick().catch((e) => { window.__aisdErr = String(e && e.stack || e); }); }, 700); };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
   };
