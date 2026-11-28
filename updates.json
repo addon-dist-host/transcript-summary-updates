@@ -3,6 +3,11 @@
     "{9f3b6d2a-7c41-4e8f-b2a5-1d0e6c8f4a37}": {
       "updates": [
         {
+          "version": "5.4",
+          "update_link": "https://raw.githubusercontent.com/addon-dist-host/transcript-summary-updates/refs/heads/main/transcript-summary-5.4.xpi",
+          "update_hash": "sha256:475f722ad9e450fa11a066b4220ba4dc196444645a14d9962823949a8a087abe"
+        },
+        {
           "version": "5.3",
           "update_link": "https://raw.githubusercontent.com/addon-dist-host/transcript-summary-updates/refs/heads/main/transcript-summary-5.3.xpi",
           "update_hash": "sha256:5accfe6246d127a86413886dd36c542e3d198b3ab4260e425a085a61b5d4a920"
